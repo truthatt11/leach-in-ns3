@@ -42,6 +42,8 @@
 #include "ns3/ipv4-interface.h"
 #include "ns3/ipv4-l3-protocol.h"
 #include "ns3/output-stream-wrapper.h"
+#include "ns3/vector.h"
+#include <vector>
 
 namespace ns3 {
 namespace leach {
@@ -76,8 +78,8 @@ public:
   virtual void SetIpv4 (Ptr<Ipv4> ipv4);
 
   // Methods to handle protocol parameters
-  void SetPosition (uint32_t f);
-  uint32_t GetPosition () const;
+  void SetPosition (Vector f);
+  Vector GetPosition () const;
 
  /**
   * Assign a fixed random variable stream number to the random variables
@@ -96,11 +98,20 @@ private:
   /// before flushing a route from the routing table. If PeriodicUpdateInterval is 8s and Holdtimes is 3, the node
   /// waits for 24s since the last update to flush this route from its routing table.
   uint32_t Round;
+  uint32_t valid;
+  uint32_t cluster_head_this_round;
+  uint32_t isSink;
   /// PeriodicUpdateInterval specifies the periodic time interval between which the a node broadcasts
   /// its entire routing table.
   Time m_periodicUpdateInterval;
   /// Nodes IP address
   Ipv4Address m_mainAddress;
+  /// Cluster Head/Sink Address
+  Ipv4Address m_targetAddress;
+  /// the closest distance node
+  double m_dist;
+  /// cluster member list
+  std::vector<Ipv4Address> m_clusterMember;
   /// IP protocol
   Ptr<Ipv4> m_ipv4;
   /// Raw socket per each IP interface, map socket -> iface address (IP + mask)
@@ -109,10 +120,12 @@ private:
   Ptr<NetDevice> m_lo;
   /// Main Routing table for the node
   RoutingTable m_routingTable;
+  /// From selecting CHs, the best stores here
+  RoutingTableEntry m_bestRoute;
   /// The maximum number of packets that we allow a routing protocol to buffer.
   uint32_t m_maxQueueLen;
-  ///
-  uint32_t m_position;
+  /// Node position
+  Vector m_position;
   /// A "drop front on full" queue used by the routing layer to buffer packets to which it does not have a route.
   PacketQueue m_queue;
   /// Unicast callback for own packets
@@ -141,6 +154,9 @@ private:
   /// Find socket with local interface address iface
   Ptr<Socket>
   FindSocketWithInterfaceAddress (Ipv4InterfaceAddress iface) const;
+  /// Find socket with local address iface
+  Ptr<Socket>
+  FindSocketWithAddress (Ipv4Address iface) const;
   
   // Receive leach control packets
   /// Receive and process leach control packet
@@ -159,21 +175,24 @@ private:
    */
   Time
   GetSettlingTime (Ipv4Address dst);
-  /// Cluster heads broadcasts selection result
+  /// Triggered by a timer, this broadcast is done after 1 second since the selection of CH
   void
-  SendClusterHeadUpdate ();
-  /// Broadcasts the entire routing table for every PeriodicUpdateInterval
+  SendBroadcast ();
+  /// Select the cluster head selection result
   void
   PeriodicUpdate ();
+  /// Cluster member tell their cluster head
   void
-  MergeTriggerPeriodicUpdates ();
+  RespondToClusterHead ();
   /// Notify that packet is dropped for some reason
   void
   Drop (Ptr<const Packet>, const Ipv4Header &, Socket::SocketErrno);
   /// Timer to trigger periodic updates from a node
   Timer m_periodicUpdateTimer;
   /// Timer used by the trigger updates in case of Weighted Settling Time is used
-  Timer m_triggeredExpireTimer;
+  Timer m_broadcastClusterHeadTimer;
+  /// Timer to feedback the cluster head its member
+  Timer m_respondToClusterHeadTimer;
 
   /// Provides uniform random variables.
   Ptr<UniformRandomVariable> m_uniformRandomVariable;  

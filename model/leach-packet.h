@@ -36,6 +36,7 @@
 #include "ns3/header.h"
 #include "ns3/ipv4-address.h"
 #include "ns3/nstime.h"
+#include "ns3/vector.h"
 
 namespace ns3 {
 namespace leach {
@@ -46,7 +47,13 @@ namespace leach {
  |      0        |      1        |      2        |       3       |
   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- |          Position X           |          Position Y           |
+ |                           Vector .x                           |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |                           Vector .y                           |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |                           Vector .z                           |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |                          Member to be                         |
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * \endverbatim
  */
@@ -54,7 +61,7 @@ namespace leach {
 class LeachHeader : public Header
 {
 public:
-  LeachHeader (uint32_t position = 0);
+  LeachHeader (Vector position = Vector(0.0, 0.0, 0.0), Ipv4Address address = Ipv4Address("255.255.255.255"));
   virtual ~LeachHeader ();
   static TypeId GetTypeId (void);
   virtual TypeId GetInstanceTypeId (void) const;
@@ -64,17 +71,29 @@ public:
   virtual void Print (std::ostream &os) const;
 
   void
-  SetPosition (uint32_t position)
+  SetPosition (Vector position)
   {
     m_position = position;
   }
-  uint32_t
+  Vector
   GetPosition () const
   {
     return m_position;
   }
+  
+  void
+  SetAddress (Ipv4Address address)
+  {
+    m_address = address;
+  }
+  Ipv4Address
+  GetAddress () const
+  {
+    return m_address;
+  }
 private:
-  uint32_t m_position; ///< (X, Y) position
+  Vector m_position; ///< (X, Y, Z) position
+  Ipv4Address m_address;
 };
 static inline std::ostream & operator<< (std::ostream& os, const LeachHeader & packet)
 {

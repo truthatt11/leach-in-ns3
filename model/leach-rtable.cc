@@ -40,18 +40,10 @@ NS_LOG_COMPONENT_DEFINE ("LeachRoutingTable");
 namespace leach {
 RoutingTableEntry::RoutingTableEntry (Ptr<NetDevice> dev,
                                       Ipv4Address dst,
-                                      uint32_t seqNo,
                                       Ipv4InterfaceAddress iface,
-                                      uint32_t hops,
-                                      Ipv4Address nextHop,
-                                      Time lifetime,
-                                      bool areChanged)
-  : m_seqNo (seqNo),
-    m_hops (hops),
-    m_lifeTime (lifetime),
-    m_iface (iface),
-    m_flag (VALID),
-    m_entriesChanged (areChanged)
+                                      Ipv4Address nextHop)
+  : m_iface (iface),
+    m_flag (VALID)
 {
   m_ipv4Route = Create<Ipv4Route> ();
   m_ipv4Route->SetDestination (dst);
@@ -72,11 +64,13 @@ RoutingTable::LookupRoute (Ipv4Address id,
 {
   if (m_ipv4AddressEntry.empty ())
     {
+//      NS_LOG_UNCOND("1");
       return false;
     }
   std::map<Ipv4Address, RoutingTableEntry>::const_iterator i = m_ipv4AddressEntry.find (id);
   if (i == m_ipv4AddressEntry.end ())
     {
+//      NS_LOG_UNCOND("2");
       return false;
     }
   rt = i->second;
@@ -196,62 +190,19 @@ void
 RoutingTableEntry::Print (Ptr<OutputStreamWrapper> stream) const
 {
   *stream->GetStream () << std::setiosflags (std::ios::fixed) << m_ipv4Route->GetDestination () << "\t\t" << m_ipv4Route->GetGateway () << "\t\t"
-                        << m_iface.GetLocal () << "\t\t" << std::setiosflags (std::ios::left)
-                        << std::setw (10) << m_hops << "\t" << std::setw (10) << m_seqNo << "\t"
-                        << std::setprecision (3) << (Simulator::Now () - m_lifeTime).GetSeconds () << "s\n";
-}
-
-void
-RoutingTable::Purge (std::map<Ipv4Address, RoutingTableEntry> & removedAddresses)
-{
-  if (m_ipv4AddressEntry.empty ())
-    {
-      return;
-    }
-  for (std::map<Ipv4Address, RoutingTableEntry>::iterator i = m_ipv4AddressEntry.begin (); i != m_ipv4AddressEntry.end (); )
-    {
-      std::map<Ipv4Address, RoutingTableEntry>::iterator itmp = i;
-      if (i->second.GetLifeTime () > m_holddownTime && (i->second.GetHop () > 0))
-        {
-          for (std::map<Ipv4Address, RoutingTableEntry>::iterator j = m_ipv4AddressEntry.begin (); j != m_ipv4AddressEntry.end (); )
-            {
-              if ((j->second.GetNextHop () == i->second.GetDestination ()) && (i->second.GetHop () != j->second.GetHop ()))
-                {
-                  std::map<Ipv4Address, RoutingTableEntry>::iterator jtmp = j;
-                  removedAddresses.insert (std::make_pair (j->first,j->second));
-                  ++j;
-                  m_ipv4AddressEntry.erase (jtmp);
-                }
-              else
-                {
-                  ++j;
-                }
-            }
-          removedAddresses.insert (std::make_pair (i->first,i->second));
-          ++i;
-          m_ipv4AddressEntry.erase (itmp);
-        }
-      /** \todo Need to decide when to invalidate a route */
-      /*          else if (i->second.GetLifeTime() > m_holddownTime)
-       {
-       ++i;
-       itmp->second.SetFlag(INVALID);
-       }*/
-      else
-        {
-          ++i;
-        }
-    }
-  return;
+                        << m_iface.GetLocal () << "\n";
 }
 
 void
 RoutingTable::Print (Ptr<OutputStreamWrapper> stream) const
 {
-  *stream->GetStream () << "\nLEACH Routing table\n" << "Destination\t\tGateway\t\tInterface\t\tHopCount\t\tSeqNum\t\tLifeTime\t\tSettlingTime\n";
+  
+  *stream->GetStream () << "\nLEACH Routing table\n" << "DST\t\t\tDestination\t\tGateway\t\t\tInterface\n";
   for (std::map<Ipv4Address, RoutingTableEntry>::const_iterator i = m_ipv4AddressEntry.begin (); i
        != m_ipv4AddressEntry.end (); ++i)
     {
+      i->first.Print (*stream->GetStream());
+      *stream->GetStream() << "\t\t";
       i->second.Print (stream);
     }
   *stream->GetStream () << "\n";

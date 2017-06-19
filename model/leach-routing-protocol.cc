@@ -39,6 +39,7 @@
 #include "ns3/boolean.h"
 #include "ns3/double.h"
 #include "ns3/uinteger.h"
+#include "ns3/vector.h"
 
 namespace ns3 {
 
@@ -121,18 +122,18 @@ RoutingProtocol::GetTypeId (void)
                    MakeUintegerAccessor (&RoutingProtocol::m_maxQueueLen),
                    MakeUintegerChecker<uint32_t> ())
     .AddAttribute ("Position", "X and Y position of the node",
-                   UintegerValue (0),
-                   MakeUintegerAccessor (&RoutingProtocol::m_position),
-                   MakeUintegerChecker<uint32_t> ());
+                   Vector3DValue (),
+                   MakeVectorAccessor (&RoutingProtocol::m_position),
+                   MakeVectorChecker ());
   return tid;
 }
 
 void
-RoutingProtocol::SetPosition (uint32_t f)
+RoutingProtocol::SetPosition (Vector f)
 {
   m_position = f;
 }
-uint32_t
+Vector
 RoutingProtocol::GetPosition () const
 {
   return m_position;
@@ -148,8 +149,11 @@ RoutingProtocol::AssignStreams (int64_t stream)
 
 RoutingProtocol::RoutingProtocol ()
   : m_routingTable (),
+    m_bestRoute(),
     m_queue (),
-    m_periodicUpdateTimer (Timer::CANCEL_ON_DESTROY)
+    m_periodicUpdateTimer (Timer::CANCEL_ON_DESTROY),
+    m_broadcastClusterHeadTimer (Timer::CANCEL_ON_DESTROY),
+    m_respondToClusterHeadTimer (Timer::CANCEL_ON_DESTROY)
 {
   m_uniformRandomVariable = CreateObject<UniformRandomVariable> ();
   Round = 0;
@@ -187,12 +191,20 @@ RoutingProtocol::PrintRoutingTable (Ptr<OutputStreamWrapper> stream) const
 void
 RoutingProtocol::Start ()
 {
-  m_queue.SetMaxQueueLen (m_maxQueueLen);
-  m_routingTable.Setholddowntime (Time (m_periodicUpdateInterval));
   m_scb = MakeCallback (&RoutingProtocol::Send,this);
   m_ecb = MakeCallback (&RoutingProtocol::Drop,this);
-  m_periodicUpdateTimer.SetFunction (&RoutingProtocol::PeriodicUpdate,this);
-  m_periodicUpdateTimer.Schedule (MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
+
+  if(m_mainAddress == Ipv4Address("10.1.1.1")) {
+    isSink = 1;
+  } else {
+    Round = 0;
+    m_queue.SetMaxQueueLen (m_maxQueueLen);
+    m_routingTable.Setholddowntime (Time (m_periodicUpdateInterval));
+    m_periodicUpdateTimer.SetFunction (&RoutingProtocol::PeriodicUpdate,this);
+    m_broadcastClusterHeadTimer.SetFunction (&RoutingProtocol::SendBroadcast,this);
+    m_respondToClusterHeadTimer.SetFunction(&RoutingProtocol::RespondToClusterHead, this);
+    m_periodicUpdateTimer.Schedule (MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
+  }
 }
 
 Ptr<Ipv4Route>
@@ -214,25 +226,19 @@ RoutingProtocol::RouteOutput (Ptr<Packet> p,
       Ptr<Ipv4Route> route;
       return route;
     }
-  std::map<Ipv4Address, RoutingTableEntry> removedAddresses;
   sockerr = Socket::ERROR_NOTERROR;
   Ptr<Ipv4Route> route;
   Ipv4Address dst = header.GetDestination ();
   NS_LOG_DEBUG ("Packet Size: " << p->GetSize ()
                                 << ", Packet id: " << p->GetUid () << ", Destination address in Packet: " << dst);
   RoutingTableEntry rt;
-  m_routingTable.Purge (removedAddresses);
-  for (std::map<Ipv4Address, RoutingTableEntry>::iterator rmItr = removedAddresses.begin ();
-       rmItr != removedAddresses.end (); ++rmItr)
-    {
-      rmItr->second.SetEntriesChanged (true);
-      rmItr->second.SetSeqNo (rmItr->second.GetSeqNo () + 1);
-    }
 
   if (m_routingTable.LookupRoute (dst,rt))
     {
       LookForQueuedPackets ();
-      if (rt.GetHop () == 1)
+      NS_LOG_DEBUG(*rt.GetRoute());
+      return rt.GetRoute();
+      if (rt.GetNextHop () == dst)
         {
           route = rt.GetRoute ();
           NS_ASSERT (route != 0);
@@ -274,6 +280,7 @@ RoutingProtocol::RouteOutput (Ptr<Packet> p,
     {
       p->AddPacketTag (tag);
     }
+  NS_LOG_DEBUG("Go to LoopbackRoute");
   return LoopbackRoute (header,oif);
 }
 
@@ -331,6 +338,7 @@ RoutingProtocol::RouteInput (Ptr<const Packet> p,
       DeferredRouteOutputTag tag;
       if (p->PeekPacketTag (tag))
         {
+          NS_LOG_FUNCTION("LEACH control message");
           DeferredRouteOutput (p,header,ucb,ecb);
           return true;
         }
@@ -478,46 +486,134 @@ RoutingProtocol::LoopbackRoute (const Ipv4Header & hdr, Ptr<NetDevice> oif) cons
 void
 RoutingProtocol::RecvLeach (Ptr<Socket> socket)
 {
-//  NS_LOG_DEBUG("RecvLEACH!!"); //done
   Address sourceAddress;
   Ptr<Packet> packet = socket->RecvFrom (sourceAddress);
   InetSocketAddress inetSourceAddr = InetSocketAddress::ConvertFrom (sourceAddress);
   Ipv4Address sender = inetSourceAddr.GetIpv4 ();
   Ipv4Address receiver = m_socketAddresses[socket].GetLocal ();
+  double dist, dx, dy;
+  LeachHeader leachHeader;
+  Vector senderPosition;
+  OutputStreamWrapper temp = OutputStreamWrapper(&std::cout);
   
-  NS_LOG_FUNCTION("Sender: " << sender << ", Receiver: " << receiver);
+  
+  
+  if(cluster_head_this_round) return;
   // maintain list of received advertisements
   // always choose the closest CH to join in
   // if itself is CH, pass this phase
+  packet->RemoveHeader(leachHeader);
+  
+  if(leachHeader.GetAddress() == Ipv4Address("255.255.255.255")) {
+    // Need to update a new route
+    RoutingTableEntry newEntry (
+      /*device=*/ socket->GetBoundNetDevice(), /*dst (sink)*/Ipv4Address("10.1.1.1"),
+      /*iface=*/ m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (receiver), 0),
+      /*next hop=*/ sender);
+    newEntry.SetFlag (VALID);
+    
+    senderPosition = leachHeader.GetPosition();
+    dx = senderPosition.x - m_position.x;
+    dy = senderPosition.y - m_position.y;
+    dist = dx*dx + dy*dy;
+
+//    newEntry.Print(&temp);
+    
+    if(dist < m_dist) {
+      m_dist = dist;
+      m_targetAddress = sender;
+      m_bestRoute = newEntry;
+      NS_LOG_DEBUG(sender);
+      
+//      m_bestRoute.Print(&temp);
+    }
+  }else {
+    // Record cluster member
+    NS_LOG_DEBUG("Cluster head receive sendback");
+    m_clusterMember.push_back(leachHeader.GetAddress());
+    for( unsigned i=0; i<m_clusterMember.size(); i++)
+      NS_LOG_FUNCTION("Cluster member: " << m_clusterMember[i]);
+  }
 }
 
+void
+RoutingProtocol::RespondToClusterHead()
+{
+  Ptr<Socket> socket = FindSocketWithAddress(m_mainAddress);
+  Ptr<Packet> packet = Create<Packet> ();
+  LeachHeader leachHeader;
+  Ipv4Address ipv4;
+  OutputStreamWrapper temp = OutputStreamWrapper(&std::cout);
+  
+  // Add routing to routingTable
+  if(m_targetAddress != ipv4) {
+//    NS_LOG_DEBUG ("Received New Route!");
+//    m_bestRoute.Print(&temp);
+    RoutingTableEntry newEntry;
+    newEntry.Copy(m_bestRoute);
+    Ptr<Ipv4Route> newRoute = newEntry.GetRoute();
+    newRoute->SetDestination(m_targetAddress);
+    newEntry.SetRoute(newRoute);
+
+//    m_bestRoute.Print(&temp);
+//    newEntry.Print(&temp);
+    if(m_bestRoute.GetInterface().GetLocal() != ipv4) m_routingTable.AddRoute (m_bestRoute);
+    if(newEntry.GetInterface().GetLocal() != ipv4) m_routingTable.AddRoute (newEntry);
+
+
+    m_routingTable.Print(&temp);
+
+    leachHeader.SetAddress(m_mainAddress);
+    packet->AddHeader (leachHeader);
+    socket->SendTo (packet, 0, InetSocketAddress (m_targetAddress, LEACH_PORT));
+  }
+}
+
+void
+RoutingProtocol::SendBroadcast ()
+{
+  Ptr<Socket> socket = Socket::CreateSocket (GetObject<Node> (),UdpSocketFactory::GetTypeId ());
+  for (std::map<Ptr<Socket>, Ipv4InterfaceAddress>::const_iterator j = m_socketAddresses.begin (); j
+       != m_socketAddresses.end (); ++j) {
+    Ptr<Socket> socket = j->first;
+    Ptr<Packet> packet = Create<Packet> ();
+    LeachHeader leachHeader;
+    Ipv4Address destination = Ipv4Address ("10.1.1.255");;
+
+    socket->SetAllowBroadcast (true);
+
+    leachHeader.SetPosition (m_position);
+    packet->AddHeader (leachHeader);
+    socket->SendTo (packet, 0, InetSocketAddress (destination, LEACH_PORT));
+  }
+}
+  
 void
 RoutingProtocol::PeriodicUpdate ()
 {
   double prob = m_uniformRandomVariable->GetValue (0,1);
   double t = 0.05/(1-0.05*(Round%20));
   
-  NS_LOG_DEBUG("PeriodicUpdate!!");
+  NS_LOG_DEBUG("PeriodicUpdate!!  " << m_position);
   NS_LOG_DEBUG("prob = " << prob << ", t = " << t);
   
-  if(prob < t) {
+  if(Round%20 == 0) valid = 1;
+  Round++;
+  m_dist = 1e100;
+  cluster_head_this_round = 0;
+  m_clusterMember.clear();
+  m_bestRoute.Reset();
+  m_targetAddress = Ipv4Address();
+  
+  if(prob < t && valid) {
     // become cluster head
     // broadcast info
-    Ptr<Socket> socket = Socket::CreateSocket (GetObject<Node> (),UdpSocketFactory::GetTypeId ());
-    for (std::map<Ptr<Socket>, Ipv4InterfaceAddress>::const_iterator j = m_socketAddresses.begin (); j
-         != m_socketAddresses.end (); ++j) {
-      Ptr<Socket> socket = j->first;
-      Ptr<Packet> packet = Create<Packet> ();
-      LeachHeader leachHeader;
-      Ipv4Address destination = Ipv4Address ("10.1.1.255");;
-
-      socket->SetAllowBroadcast (true);
-
-      leachHeader.SetPosition (m_position);
-      packet->AddHeader (leachHeader);
-      socket->SendTo (packet, 0, InetSocketAddress (destination, LEACH_PORT));
-    }
-    ;
+    m_broadcastClusterHeadTimer.Schedule (Seconds(1)+MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
+    valid = 0;
+    cluster_head_this_round = 1;
+    m_targetAddress = Ipv4Address("10.1.1.1");
+  }else {
+    m_respondToClusterHeadTimer.Schedule (Seconds(2)+MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
   }
   m_periodicUpdateTimer.Schedule (m_periodicUpdateInterval + MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
 }
@@ -535,14 +631,10 @@ RoutingProtocol::SetIpv4 (Ptr<Ipv4> ipv4)
   // Remember lo route
   RoutingTableEntry rt (
     /*device=*/ m_lo,  /*dst=*/
-    Ipv4Address::GetLoopback (), /*seqno=*/
-    0,
-    /*iface=*/ Ipv4InterfaceAddress (Ipv4Address::GetLoopback (),Ipv4Mask ("255.0.0.0")),
-    /*hops=*/ 0,  /*next hop=*/
     Ipv4Address::GetLoopback (),
-    /*lifetime=*/ Simulator::GetMaximumSimulationTime ());
+    /*iface=*/ Ipv4InterfaceAddress (Ipv4Address::GetLoopback (),Ipv4Mask ("255.0.0.0")),
+    /*next hop=*/ Ipv4Address::GetLoopback ());
   rt.SetFlag (INVALID);
-  rt.SetEntriesChanged (false);
   m_routingTable.AddRoute (rt);
   Simulator::ScheduleNow (&RoutingProtocol::Start,this);
 }
@@ -569,8 +661,7 @@ RoutingProtocol::NotifyInterfaceUp (uint32_t i)
   m_socketAddresses.insert (std::make_pair (socket,iface));
   // Add local broadcast record to the routing table
   Ptr<NetDevice> dev = m_ipv4->GetNetDevice (m_ipv4->GetInterfaceForAddress (iface.GetLocal ()));
-  RoutingTableEntry rt (/*device=*/ dev, /*dst=*/ iface.GetBroadcast (), /*seqno=*/ 0,/*iface=*/ iface,/*hops=*/ 0,
-                                    /*next hop=*/ iface.GetBroadcast (), /*lifetime=*/ Simulator::GetMaximumSimulationTime ());
+  RoutingTableEntry rt (/*device=*/ dev, /*dst=*/ iface.GetBroadcast (),/*iface=*/ iface, /*next hop=*/ iface.GetBroadcast ());
   m_routingTable.AddRoute (rt);
   if (m_mainAddress == Ipv4Address ())
     {
@@ -624,8 +715,7 @@ RoutingProtocol::NotifyAddAddress (uint32_t i,
       socket->SetAllowBroadcast (true);
       m_socketAddresses.insert (std::make_pair (socket,iface));
       Ptr<NetDevice> dev = m_ipv4->GetNetDevice (m_ipv4->GetInterfaceForAddress (iface.GetLocal ()));
-      RoutingTableEntry rt (/*device=*/ dev, /*dst=*/ iface.GetBroadcast (),/*seqno=*/ 0, /*iface=*/ iface,/*hops=*/ 0,
-                                        /*next hop=*/ iface.GetBroadcast (), /*lifetime=*/ Simulator::GetMaximumSimulationTime ());
+      RoutingTableEntry rt (/*device=*/ dev, /*dst=*/ iface.GetBroadcast (), /*iface=*/ iface, /*next hop=*/ iface.GetBroadcast ());
       m_routingTable.AddRoute (rt);
     }
 }
@@ -655,6 +745,22 @@ RoutingProtocol::NotifyRemoveAddress (uint32_t i,
 }
 
 Ptr<Socket>
+RoutingProtocol::FindSocketWithAddress (Ipv4Address addr) const
+{
+  for (std::map<Ptr<Socket>, Ipv4InterfaceAddress>::const_iterator j = m_socketAddresses.begin (); j
+       != m_socketAddresses.end (); ++j)
+    {
+      Ptr<Socket> socket = j->first;
+      Ipv4Address iface = j->second.GetLocal();
+      if (iface == addr)
+        {
+          return socket;
+        }
+    }
+  return NULL;
+}
+
+Ptr<Socket>
 RoutingProtocol::FindSocketWithInterfaceAddress (Ipv4InterfaceAddress addr) const
 {
   for (std::map<Ptr<Socket>, Ipv4InterfaceAddress>::const_iterator j = m_socketAddresses.begin (); j
@@ -667,8 +773,7 @@ RoutingProtocol::FindSocketWithInterfaceAddress (Ipv4InterfaceAddress addr) cons
           return socket;
         }
     }
-  Ptr<Socket> socket;
-  return socket;
+  return NULL;
 }
 
 void
@@ -701,10 +806,9 @@ RoutingProtocol::LookForQueuedPackets ()
   for (std::map<Ipv4Address, RoutingTableEntry>::const_iterator i = allRoutes.begin (); i != allRoutes.end (); ++i)
     {
       RoutingTableEntry rt;
-      rt = i->second;
       if (m_queue.Find (rt.GetDestination ()))
         {
-          if (rt.GetHop () == 1)
+          if (rt.GetNextHop () == rt.GetDestination() )
             {
               route = rt.GetRoute ();
               NS_LOG_LOGIC ("A route exists from " << route->GetSource ()
@@ -722,6 +826,7 @@ RoutingProtocol::LookForQueuedPackets ()
                                                    << rt.GetNextHop ());
               NS_ASSERT (route != 0);
             }
+//          NS_LOG_DEBUG("out");
           SendPacketFromQueue (rt.GetDestination (),route);
         }
     }

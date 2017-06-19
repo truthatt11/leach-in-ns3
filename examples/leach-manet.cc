@@ -36,6 +36,7 @@
 #include "ns3/internet-module.h"
 #include "ns3/leach-helper.h"
 #include "ns3/wifi-module.h"
+#include "ns3/vector.h"
 #include <iostream>
 #include <cmath>
 
@@ -68,6 +69,7 @@ private:
   double m_dataStart;
   uint32_t bytesTotal;
   uint32_t packetsReceived;
+  Vector positions[105];
 
   NodeContainer nodes;
   NetDeviceContainer devices;
@@ -89,7 +91,7 @@ int main (int argc, char **argv)
 {
   LeachManetExample test;
   uint32_t nWifis = 30;
-  uint32_t nSinks = 10;
+  uint32_t nSinks = 1;
   double totalTime = 50.0;
   std::string rate ("8kbps");
   std::string phyMode ("DsssRate11Mbps");
@@ -99,7 +101,7 @@ int main (int argc, char **argv)
 
   CommandLine cmd;
   cmd.AddValue ("nWifis", "Number of lr-wpan nodes[Default:30]", nWifis);
-  cmd.AddValue ("nSinks", "Number of lr-wpan sink nodes[Default:10]", nSinks);
+  cmd.AddValue ("nSinks", "Number of lr-wpan sink nodes[Default:1]", nSinks);
   cmd.AddValue ("totalTime", "Total Simulation time[Default:50]", totalTime);
   cmd.AddValue ("phyMode", "Wifi Phy mode[Default:DsssRate11Mbps]", phyMode);
   cmd.AddValue ("rate", "CBR traffic rate[Default:8kbps]", rate);
@@ -211,19 +213,20 @@ LeachManetExample::SetupMobility ()
 {
   MobilityHelper mobility;
   ObjectFactory pos;
+  uint32_t count = 0;
   pos.SetTypeId ("ns3::RandomRectanglePositionAllocator");
   pos.Set ("X", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=1000.0]"));
   pos.Set ("Y", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=1000.0]"));
 
   Ptr <PositionAllocator> taPositionAlloc = pos.Create ()->GetObject <PositionAllocator> ();
-  mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel"/*, "PositionAllocator", PointerValue (taPositionAlloc)*/ );
+  mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
   mobility.SetPositionAllocator (taPositionAlloc);
   mobility.Install (nodes);
   
   for (NodeContainer::Iterator i = nodes.Begin (); i != nodes.End (); ++i)
     {
       Ptr<MobilityModel> model = (*i)->GetObject<MobilityModel> ();
-      NS_LOG_UNCOND("Node position: " << model->GetPosition());
+      positions[count++] = model->GetPosition();
     }
 }
 
@@ -247,25 +250,21 @@ LeachManetExample::CreateDevices ()
   wifiPhy.EnablePcapAll ("Leach-Manet");
 }
 
-/*
-void
-LeachManetExample::CreateDevices ()
-{
-    LrWpanHelper lrWpanHelper;
-    
-    devices = lrWpanHelper.Install(nodes);
-    lrWpanHelper.EnablePcapAll("Leach-Manet");
-}
-*/
-
 void
 LeachManetExample::InstallInternetStack (std::string tr_name)
 {
   LeachHelper leach;
   leach.Set ("PeriodicUpdateInterval", TimeValue (Seconds (m_periodicUpdateInterval)));
   InternetStackHelper stack;
-  stack.SetRoutingHelper (leach); // has effect on the next Install ()
-  stack.Install (nodes);
+  uint32_t count = 0;
+
+  for (NodeContainer::Iterator i = nodes.Begin (); i != nodes.End (); ++i)
+    {
+      leach.Set("Position", Vector3DValue(positions[count++]));
+      stack.SetRoutingHelper (leach); // has effect on the next Install ()
+      stack.Install (*i);
+    }
+  //stack.Install (nodes);        // should give change to leach protocol on the position property
   Ipv4AddressHelper address;
   address.SetBase ("10.1.1.0", "255.255.255.0");
   interfaces = address.Assign (devices);
@@ -274,29 +273,19 @@ LeachManetExample::InstallInternetStack (std::string tr_name)
 void
 LeachManetExample::InstallApplications ()
 {
-  for (uint32_t i = 0; i <= m_nSinks - 1; i++ )
+  Ptr<Node> node = NodeList::GetNode (0);
+  Ipv4Address nodeAddress = node->GetObject<Ipv4> ()->GetAddress (1, 0).GetLocal ();
+  Ptr<Socket> sink = SetupPacketReceive (nodeAddress, node);
+  
+  OnOffHelper onoff1 ("ns3::UdpSocketFactory", Address (InetSocketAddress (interfaces.GetAddress (0), port)));
+  onoff1.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"));
+  onoff1.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0.0]"));
+  
+  for (uint32_t clientNode = 1; clientNode <= m_nWifis - 1; clientNode++ )
     {
-      Ptr<Node> node = NodeList::GetNode (i);
-      Ipv4Address nodeAddress = node->GetObject<Ipv4> ()->GetAddress (1, 0).GetLocal ();
-      Ptr<Socket> sink = SetupPacketReceive (nodeAddress, node);
-    }
-
-  for (uint32_t clientNode = 0; clientNode <= m_nWifis - 1; clientNode++ )
-    {
-      for (uint32_t j = 0; j <= m_nSinks - 1; j++ )
-        {
-          OnOffHelper onoff1 ("ns3::UdpSocketFactory", Address (InetSocketAddress (interfaces.GetAddress (j), port)));
-          onoff1.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"));
-          onoff1.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0.0]"));
-
-          if (j != clientNode)
-            {
-              ApplicationContainer apps1 = onoff1.Install (nodes.Get (clientNode));
-              Ptr<UniformRandomVariable> var = CreateObject<UniformRandomVariable> ();
-              apps1.Start (Seconds (var->GetValue (m_dataStart, m_dataStart + 1)));
-              apps1.Stop (Seconds (m_totalTime));
-            }
-        }
+      ApplicationContainer apps1 = onoff1.Install (nodes.Get (clientNode));
+      Ptr<UniformRandomVariable> var = CreateObject<UniformRandomVariable> ();
+      apps1.Start (Seconds (var->GetValue (m_dataStart, m_dataStart + 1)));
+      apps1.Stop (Seconds (m_totalTime));
     }
 }
-

@@ -37,8 +37,9 @@ namespace leach {
 
 NS_OBJECT_ENSURE_REGISTERED (LeachHeader);
     
-LeachHeader::LeachHeader (uint32_t position)
-  : m_position (position)
+LeachHeader::LeachHeader (Vector position, Ipv4Address address)
+  : m_position (position),
+    m_address (address)
 {
 }
 
@@ -65,13 +66,14 @@ LeachHeader::GetInstanceTypeId () const
 uint32_t
 LeachHeader::GetSerializedSize () const
 {
-  return 12;
+  return sizeof(m_position)+sizeof(m_address);
 }
 
 void
 LeachHeader::Serialize (Buffer::Iterator i) const
 {
-  i.WriteHtonU32 (m_position);
+  i.Write ((const uint8_t*)&m_position, sizeof(m_position));
+  i.Write ((const uint8_t*)&m_address, sizeof(m_address));
 }
 
 uint32_t
@@ -79,7 +81,8 @@ LeachHeader::Deserialize (Buffer::Iterator start)
 {
   Buffer::Iterator i = start;
 
-  m_position = i.ReadNtohU32 ();
+  i.Read ((uint8_t*)&m_position, sizeof(m_position));
+  i.Read ((uint8_t*)&m_address, sizeof(m_address));
 
   uint32_t dist = i.GetDistanceFrom (start);
   NS_ASSERT (dist == GetSerializedSize ());
@@ -89,7 +92,7 @@ LeachHeader::Deserialize (Buffer::Iterator start)
 void
 LeachHeader::Print (std::ostream &os) const
 {
-  os << " Position: " << m_position;
+  os << " Position: " << m_position << ", IP: " << m_address;
 }
 }
 }

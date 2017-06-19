@@ -45,6 +45,7 @@
 #include "ns3/ipv4-address-helper.h"
 #include "ns3/leach-packet.h"
 #include "ns3/leach-rtable.h"
+#include "ns3/vector.h"
 
 using namespace ns3;
 
@@ -63,6 +64,11 @@ LeachHeaderTestCase::LeachHeaderTestCase ()
 LeachHeaderTestCase::~LeachHeaderTestCase ()
 {
 }
+
+bool operator== (const Vector& lhs, const Vector& rhs) {
+  return (lhs.x == rhs.x) && (lhs.y == rhs.y) && (lhs.z == rhs.z);
+}
+
 void
 LeachHeaderTestCase::DoRun ()
 {
@@ -70,23 +76,23 @@ LeachHeaderTestCase::DoRun ()
 
   {
     leach::LeachHeader hdr1;
-    hdr1.SetPosition (65537);
+    hdr1.SetPosition (Vector(1.0, 1.0, 2.0));
     packet->AddHeader (hdr1);
     leach::LeachHeader hdr2;
-    hdr2.SetPosition (196611);
+    hdr2.SetPosition (Vector(2.3, 3.4, 5.6));
     packet->AddHeader (hdr2);
-    NS_TEST_ASSERT_MSG_EQ (packet->GetSize (), 8, "001");
+    NS_TEST_ASSERT_MSG_EQ (packet->GetSize (), 24, "001");
   }
 
   {
     leach::LeachHeader hdr2;
     packet->RemoveHeader (hdr2);
-    NS_TEST_ASSERT_MSG_EQ (hdr2.GetSerializedSize (),4,"002");
-    NS_TEST_ASSERT_MSG_EQ (hdr2.GetPosition (), 65537,"003");
+    NS_TEST_ASSERT_MSG_EQ (hdr2.GetSerializedSize (),12,"002");
+    NS_TEST_ASSERT_MSG_EQ (hdr2.GetPosition (), Vector(2.3, 3.4, 5.6),"003");
     leach::LeachHeader hdr1;
     packet->RemoveHeader (hdr1);
-    NS_TEST_ASSERT_MSG_EQ (hdr1.GetSerializedSize (),4,"004");
-    NS_TEST_ASSERT_MSG_EQ (hdr1.GetPosition (), 196611,"005");
+    NS_TEST_ASSERT_MSG_EQ (hdr1.GetSerializedSize (),12,"004");
+    NS_TEST_ASSERT_MSG_EQ (hdr1.GetPosition (), Vector(1.0, 1.0, 2.0),"005");
   }
 }
 
@@ -113,36 +119,24 @@ LeachTableTestCase::DoRun ()
   Ptr<NetDevice> dev;
   {
     leach::RoutingTableEntry rEntry1 (
-      /*device=*/ dev, /*dst=*/
-      Ipv4Address ("10.1.1.4"), /*seqno=*/ 2,
+      /*device=*/ dev, /*dst=*/ Ipv4Address ("10.1.1.4"),
       /*iface=*/ Ipv4InterfaceAddress (Ipv4Address ("10.1.1.1"), Ipv4Mask ("255.255.255.0")),
-      /*hops=*/ 2, /*next hop=*/
-      Ipv4Address ("10.1.1.2"),
-      /*lifetime=*/ Seconds (10));
+      /*next hop=*/ Ipv4Address ("10.1.1.2"));
     NS_TEST_EXPECT_MSG_EQ (rtable.AddRoute (rEntry1),true,"add route");
     leach::RoutingTableEntry rEntry2 (
-      /*device=*/ dev, /*dst=*/
-      Ipv4Address ("10.1.1.2"), /*seqno=*/ 4,
+      /*device=*/ dev, /*dst=*/ Ipv4Address ("10.1.1.2"),
       /*iface=*/ Ipv4InterfaceAddress (Ipv4Address ("10.1.1.1"), Ipv4Mask ("255.255.255.0")),
-      /*hops=*/ 1, /*next hop=*/
-      Ipv4Address ("10.1.1.2"),
-      /*lifetime=*/ Seconds (10));
+      /*next hop=*/ Ipv4Address ("10.1.1.2"));
     NS_TEST_EXPECT_MSG_EQ (rtable.AddRoute (rEntry2),true,"add route");
     leach::RoutingTableEntry rEntry3 (
-      /*device=*/ dev, /*dst=*/
-      Ipv4Address ("10.1.1.3"), /*seqno=*/ 4,
+      /*device=*/ dev, /*dst=*/ Ipv4Address ("10.1.1.3"),
       /*iface=*/ Ipv4InterfaceAddress (Ipv4Address ("10.1.1.1"), Ipv4Mask ("255.255.255.0")),
-      /*hops=*/ 1, /*next hop=*/
-      Ipv4Address ("10.1.1.3"),
-      /*lifetime=*/ Seconds (10));
+      /*next hop=*/ Ipv4Address ("10.1.1.3"));
     NS_TEST_EXPECT_MSG_EQ (rtable.AddRoute (rEntry3),true,"add route");
     leach::RoutingTableEntry rEntry4 (
-      /*device=*/ dev, /*dst=*/
-      Ipv4Address ("10.1.1.255"), /*seqno=*/ 0,
+      /*device=*/ dev, /*dst=*/ Ipv4Address ("10.1.1.255"),
       /*iface=*/ Ipv4InterfaceAddress (Ipv4Address ("10.1.1.1"), Ipv4Mask ("255.255.255.0")),
-      /*hops=*/ 0, /*next hop=*/
-      Ipv4Address ("10.1.1.255"),
-      /*lifetime=*/ Seconds (10));
+      /*next hop=*/ Ipv4Address ("10.1.1.255"));
     NS_TEST_EXPECT_MSG_EQ (rtable.AddRoute (rEntry4),true,"add route");
   }
   {
@@ -150,27 +144,24 @@ LeachTableTestCase::DoRun ()
     if (rtable.LookupRoute (Ipv4Address ("10.1.1.4"), rEntry))
       {
         NS_TEST_ASSERT_MSG_EQ (rEntry.GetDestination (),Ipv4Address ("10.1.1.4"),"100");
-        NS_TEST_ASSERT_MSG_EQ (rEntry.GetSeqNo (),2,"101");
-        NS_TEST_ASSERT_MSG_EQ (rEntry.GetHop (),2,"102");
+        NS_TEST_ASSERT_MSG_EQ (rEntry.GetNextHop (), Ipv4Address ("10.1.1.2"),"101");
       }
     if (rtable.LookupRoute (Ipv4Address ("10.1.1.2"), rEntry))
       {
-        NS_TEST_ASSERT_MSG_EQ (rEntry.GetDestination (),Ipv4Address ("10.1.1.2"),"103");
-        NS_TEST_ASSERT_MSG_EQ (rEntry.GetSeqNo (),4,"104");
-        NS_TEST_ASSERT_MSG_EQ (rEntry.GetHop (),1,"105");
+        NS_TEST_ASSERT_MSG_EQ (rEntry.GetDestination (),Ipv4Address ("10.1.1.2"),"102");
+        NS_TEST_ASSERT_MSG_EQ (rEntry.GetNextHop (), Ipv4Address ("10.1.1.2"),"103");
       }
     if (rtable.LookupRoute (Ipv4Address ("10.1.1.3"), rEntry))
       {
-        NS_TEST_ASSERT_MSG_EQ (rEntry.GetDestination (),Ipv4Address ("10.1.1.3"),"106");
-        NS_TEST_ASSERT_MSG_EQ (rEntry.GetSeqNo (),4,"107");
-        NS_TEST_ASSERT_MSG_EQ (rEntry.GetHop (),1,"108");
+        NS_TEST_ASSERT_MSG_EQ (rEntry.GetDestination (),Ipv4Address ("10.1.1.3"),"104");
+        NS_TEST_ASSERT_MSG_EQ (rEntry.GetNextHop (), Ipv4Address ("10.1.1.3"),"105");
       }
     if (rtable.LookupRoute (Ipv4Address ("10.1.1.255"), rEntry))
       {
-        NS_TEST_ASSERT_MSG_EQ (rEntry.GetDestination (),Ipv4Address ("10.1.1.255"),"109");
+        NS_TEST_ASSERT_MSG_EQ (rEntry.GetDestination (),Ipv4Address ("10.1.1.255"),"106");
       }
-    NS_TEST_ASSERT_MSG_EQ (rEntry.GetInterface ().GetLocal (),Ipv4Address ("10.1.1.1"),"110");
-    NS_TEST_ASSERT_MSG_EQ (rEntry.GetInterface ().GetBroadcast (),Ipv4Address ("10.1.1.255"),"111");
+    NS_TEST_ASSERT_MSG_EQ (rEntry.GetInterface ().GetLocal (),Ipv4Address ("10.1.1.1"),"107");
+    NS_TEST_ASSERT_MSG_EQ (rEntry.GetInterface ().GetBroadcast (),Ipv4Address ("10.1.1.255"),"108");
     NS_TEST_ASSERT_MSG_EQ (rtable.RoutingTableSize (),4,"Rtable size incorrect");
   }
   Simulator::Destroy ();

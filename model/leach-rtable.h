@@ -57,16 +57,38 @@ class RoutingTableEntry
 {
 public:
   /// c-tor
-  RoutingTableEntry (Ptr<NetDevice> dev = 0, Ipv4Address dst = Ipv4Address (), uint32_t m_seqNo = 0,
-                     Ipv4InterfaceAddress iface = Ipv4InterfaceAddress (), uint32_t hops = 0, Ipv4Address nextHop = Ipv4Address (),
-                     Time lifetime = Simulator::Now (), bool changedEntries = false);
+  RoutingTableEntry (Ptr<NetDevice> dev = 0, Ipv4Address dst = Ipv4Address (), 
+                     Ipv4InterfaceAddress iface = Ipv4InterfaceAddress (), Ipv4Address nextHop = Ipv4Address ());
 
   ~RoutingTableEntry ();
-  Ipv4Address
-  GetDestination () const
+  
+  void
+  Reset()
   {
-    return m_ipv4Route->GetDestination ();
+    m_iface = Ipv4InterfaceAddress ();
+    m_ipv4Route->SetDestination (Ipv4Address ());
+    m_ipv4Route->SetGateway (Ipv4Address ());
+    m_ipv4Route->SetSource (m_iface.GetLocal ());
+    m_ipv4Route->SetOutputDevice (0);
+    m_flag = VALID;
   }
+  void
+  Copy(RoutingTableEntry from)
+  {
+    m_iface = from.GetInterface ();
+    m_ipv4Route->SetDestination (from.GetDestination ());
+    m_ipv4Route->SetGateway (from.GetRoute()->GetGateway ());
+    m_ipv4Route->SetSource (from.GetRoute()->GetSource ());
+    m_ipv4Route->SetOutputDevice (from.GetRoute()->GetOutputDevice());
+    m_flag = from.GetFlag ();
+  }
+  
+  Ipv4Address
+  GetDestination() const
+  {
+    return m_ipv4Route->GetDestination();
+  }
+  
   Ptr<Ipv4Route>
   GetRoute () const
   {
@@ -77,6 +99,7 @@ public:
   {
     m_ipv4Route = route;
   }
+  
   void
   SetNextHop (Ipv4Address nextHop)
   {
@@ -87,6 +110,7 @@ public:
   {
     return m_ipv4Route->GetGateway ();
   }
+  
   void
   SetOutputDevice (Ptr<NetDevice> device)
   {
@@ -97,6 +121,7 @@ public:
   {
     return m_ipv4Route->GetOutputDevice ();
   }
+  
   Ipv4InterfaceAddress
   GetInterface () const
   {
@@ -107,36 +132,7 @@ public:
   {
     m_iface = iface;
   }
-  void
-  SetSeqNo (uint32_t sequenceNumber)
-  {
-    m_seqNo = sequenceNumber;
-  }
-  uint32_t
-  GetSeqNo () const
-  {
-    return m_seqNo;
-  }
-  void
-  SetHop (uint32_t hopCount)
-  {
-    m_hops = hopCount;
-  }
-  uint32_t
-  GetHop () const
-  {
-    return m_hops;
-  }
-  void
-  SetLifeTime (Time lifeTime)
-  {
-    m_lifeTime = lifeTime;
-  }
-  Time
-  GetLifeTime () const
-  {
-    return (Simulator::Now () - m_lifeTime);
-  }
+  
   void
   SetFlag (RouteFlags flag)
   {
@@ -146,16 +142,6 @@ public:
   GetFlag () const
   {
     return m_flag;
-  }
-  void
-  SetEntriesChanged (bool entriesChanged)
-  {
-    m_entriesChanged = entriesChanged;
-  }
-  bool
-  GetEntriesChanged () const
-  {
-    return m_entriesChanged;
   }
   /**
    * \brief Compare destination address
@@ -172,17 +158,6 @@ public:
 private:
   
   // Fields
-  /// Destination Sequence Number
-  uint32_t m_seqNo;
-  /// Hop Count (number of hops needed to reach destination)
-  uint32_t m_hops;
-  /**
-   * \brief Expiration or deletion time of the route
-   *	Lifetime field in the routing table plays dual role --
-   *	for an active route it is the expiration time, and for an invalid route
-   *	it is the deletion time.
-   */
-  Time m_lifeTime;
   /** Ip route, include
    *   - destination address
    *   - source address
@@ -194,9 +169,7 @@ private:
   Ipv4InterfaceAddress m_iface;
   /// Routing flags: valid, invalid or in search
   RouteFlags m_flag;
-  /// Flag to show if any of the routing table entries were changed with the routing update.
-  uint32_t m_entriesChanged;
-
+  
 };
 
 /**
@@ -261,9 +234,6 @@ public:
   {
     m_ipv4AddressEntry.clear ();
   }
-  /// Delete all outdated entries if Lifetime is expired
-  void
-  Purge (std::map<Ipv4Address, RoutingTableEntry> & removedAddresses);
   /// Print routing table
   void
   Print (Ptr<OutputStreamWrapper> stream) const;
