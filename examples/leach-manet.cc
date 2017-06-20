@@ -95,7 +95,6 @@ int main (int argc, char **argv)
   double totalTime = 50.0;
   std::string rate ("8kbps");
   std::string phyMode ("DsssRate11Mbps");
-  std::string appl = "all";
   uint32_t periodicUpdateInterval = 15;
   double dataStart = 20.0;
 

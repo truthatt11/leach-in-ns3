@@ -108,6 +108,8 @@ private:
   Ipv4Address m_mainAddress;
   /// Cluster Head/Sink Address
   Ipv4Address m_targetAddress;
+  /// The ultimate sink
+  Ipv4Address m_sinkAddress;
   /// the closest distance node
   double m_dist;
   /// cluster member list
@@ -138,12 +140,12 @@ private:
   /// Start protocol operation
   void
   Start ();
-  /// Queue packet untill we find a route
+  /// Queue packet until we find a route
   void
-  DeferredRouteOutput (Ptr<const Packet> p, const Ipv4Header & header, UnicastForwardCallback ucb, ErrorCallback ecb);
+  EnqueuePacket (Ptr<const Packet> p, const Ipv4Header & header);
   /// Look for any queued packets to send them out
   void
-  LookForQueuedPackets (void);
+  DataAggregation (void);
   /**
    * Send packet from queue
    * \param dst - destination address to which we are sending the packet to
@@ -168,13 +170,6 @@ private:
   /// Create loopback route for given header
   Ptr<Ipv4Route>
   LoopbackRoute (const Ipv4Header & header, Ptr<NetDevice> oif) const;
-  /**
-   * Get settlingTime for a destination
-   * \param dst - destination address
-   * \return settlingTime for the destination if found
-   */
-  Time
-  GetSettlingTime (Ipv4Address dst);
   /// Triggered by a timer, this broadcast is done after 1 second since the selection of CH
   void
   SendBroadcast ();

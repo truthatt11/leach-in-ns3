@@ -52,60 +52,6 @@ NS_OBJECT_ENSURE_REGISTERED (RoutingProtocol);
 /// UDP Port for LEACH control traffic
 const uint32_t RoutingProtocol::LEACH_PORT = 269;
 
-/// Tag used by LEACH implementation
-struct DeferredRouteOutputTag : public Tag
-{
-  /// Positive if output device is fixed in RouteOutput
-  int32_t oif;
-
-  DeferredRouteOutputTag (int32_t o = -1)
-    : Tag (),
-      oif (o)
-  {
-  }
-
-  static TypeId
-  GetTypeId ()
-  {
-    static TypeId tid = TypeId ("ns3::leach::DeferredRouteOutputTag")
-      .SetParent<Tag> ()
-      .SetGroupName ("Leach")
-      .AddConstructor<DeferredRouteOutputTag> ()
-      ;
-    return tid;
-  }
-
-  TypeId
-  GetInstanceTypeId () const
-  {
-    return GetTypeId ();
-  }
-
-  uint32_t
-  GetSerializedSize () const
-  {
-    return sizeof(int32_t);
-  }
-
-  void
-  Serialize (TagBuffer i) const
-  {
-    i.WriteU32 (oif);
-  }
-
-  void
-  Deserialize (TagBuffer i)
-  {
-    oif = i.ReadU32 ();
-  }
-
-  void
-  Print (std::ostream &os) const
-  {
-    os << "DeferredRouteOutputTag: output interface = " << oif;
-  }
-};
-
 TypeId
 RoutingProtocol::GetTypeId (void)
 {
@@ -193,8 +139,9 @@ RoutingProtocol::Start ()
 {
   m_scb = MakeCallback (&RoutingProtocol::Send,this);
   m_ecb = MakeCallback (&RoutingProtocol::Drop,this);
-
-  if(m_mainAddress == Ipv4Address("10.1.1.1")) {
+  m_sinkAddress = Ipv4Address("10.1.1.1");
+  
+  if(m_mainAddress == m_sinkAddress) {
     isSink = 1;
   } else {
     Round = 0;
@@ -215,10 +162,6 @@ RoutingProtocol::RouteOutput (Ptr<Packet> p,
 {
   NS_LOG_FUNCTION (this << header << (oif ? oif->GetIfIndex () : 0));
 
-  if (!p)
-    {
-      return LoopbackRoute (header,oif);
-    }
   if (m_socketAddresses.empty ())
     {
       sockerr = Socket::ERROR_NOROUTETOHOST;
@@ -226,6 +169,8 @@ RoutingProtocol::RouteOutput (Ptr<Packet> p,
       Ptr<Ipv4Route> route;
       return route;
     }
+  OutputStreamWrapper temp = OutputStreamWrapper(&std::cout);
+  
   sockerr = Socket::ERROR_NOTERROR;
   Ptr<Ipv4Route> route;
   Ipv4Address dst = header.GetDestination ();
@@ -233,66 +178,74 @@ RoutingProtocol::RouteOutput (Ptr<Packet> p,
                                 << ", Packet id: " << p->GetUid () << ", Destination address in Packet: " << dst);
   RoutingTableEntry rt;
 
+//  m_routingTable.Print(&temp);
   if (m_routingTable.LookupRoute (dst,rt))
     {
-      LookForQueuedPackets ();
-      NS_LOG_DEBUG(*rt.GetRoute());
+      m_routingTable.Print(&temp);
+      DataAggregation ();
+      NS_LOG_DEBUG(rt.GetRoute()->GetOutputDevice());
+      NS_LOG_DEBUG(rt.GetInterface());
       return rt.GetRoute();
-      if (rt.GetNextHop () == dst)
-        {
-          route = rt.GetRoute ();
-          NS_ASSERT (route != 0);
-          NS_LOG_DEBUG ("A route exists from " << route->GetSource ()
-                                               << " to neighboring destination "
-                                               << route->GetDestination ());
-          if (oif != 0 && route->GetOutputDevice () != oif)
-            {
-              NS_LOG_DEBUG ("Output device doesn't match. Dropped.");
-              sockerr = Socket::ERROR_NOROUTETOHOST;
-              return Ptr<Ipv4Route> ();
-            }
-          return route;
-        }
-      else
-        {
-          RoutingTableEntry newrt;
-          if (m_routingTable.LookupRoute (rt.GetNextHop (),newrt))
-            {
-              route = newrt.GetRoute ();
-              NS_ASSERT (route != 0);
-              NS_LOG_DEBUG ("A route exists from " << route->GetSource ()
-                                                   << " to destination " << dst << " via "
-                                                   << rt.GetNextHop ());
-              if (oif != 0 && route->GetOutputDevice () != oif)
-                {
-                  NS_LOG_DEBUG ("Output device doesn't match. Dropped.");
-                  sockerr = Socket::ERROR_NOROUTETOHOST;
-                  return Ptr<Ipv4Route> ();
-                }
-              return route;
-            }
-        }
     }
 
-  uint32_t iif = (oif ? m_ipv4->GetInterfaceForDevice (oif) : -1);
-  DeferredRouteOutputTag tag (iif);
-  if (!p->PeekPacketTag (tag))
-    {
-      p->AddPacketTag (tag);
-    }
-  NS_LOG_DEBUG("Go to LoopbackRoute");
   return LoopbackRoute (header,oif);
 }
 
+Ptr<Ipv4Route>
+RoutingProtocol::LoopbackRoute (const Ipv4Header & hdr, Ptr<NetDevice> oif) const
+{
+  NS_ASSERT (m_lo != 0);
+  Ptr<Ipv4Route> rt = Create<Ipv4Route> ();
+  rt->SetDestination (hdr.GetDestination ());
+  // rt->SetSource (hdr.GetSource ());
+  //
+  // Source address selection here is tricky.  The loopback route is
+  // returned when DSDV does not have a route; this causes the packet
+  // to be looped back and handled (cached) in RouteInput() method
+  // while a route is found. However, connection-oriented protocols
+  // like TCP need to create an endpoint four-tuple (src, src port,
+  // dst, dst port) and create a pseudo-header for checksumming.  So,
+  // DSDV needs to guess correctly what the eventual source address
+  // will be.
+  //
+  // For single interface, single address nodes, this is not a problem.
+  // When there are possibly multiple outgoing interfaces, the policy
+  // implemented here is to pick the first available DSDV interface.
+  // If RouteOutput() caller specified an outgoing interface, that
+  // further constrains the selection of source address
+  //
+  std::map<Ptr<Socket>, Ipv4InterfaceAddress>::const_iterator j = m_socketAddresses.begin ();
+  if (oif)
+    {
+      // Iterate to find an address on the oif device
+      for (j = m_socketAddresses.begin (); j != m_socketAddresses.end (); ++j)
+        {
+          Ipv4Address addr = j->second.GetLocal ();
+          int32_t interface = m_ipv4->GetInterfaceForAddress (addr);
+          if (oif == m_ipv4->GetNetDevice (static_cast<uint32_t> (interface)))
+            {
+              rt->SetSource (addr);
+              break;
+            }
+        }
+    }
+  else
+    {
+      rt->SetSource (j->second.GetLocal ());
+    }
+  NS_ASSERT_MSG (rt->GetSource () != Ipv4Address (), "Valid DSDV source address not found");
+  rt->SetGateway (Ipv4Address ("127.0.0.1"));
+  rt->SetOutputDevice (m_lo);
+  return rt;
+}
+  
 void
-RoutingProtocol::DeferredRouteOutput (Ptr<const Packet> p,
-                                      const Ipv4Header & header,
-                                      UnicastForwardCallback ucb,
-                                      ErrorCallback ecb)
+RoutingProtocol::EnqueuePacket (Ptr<const Packet> p,
+                                const Ipv4Header & header)
 {
   NS_LOG_FUNCTION (this << p << header);
   NS_ASSERT (p != 0 && p != Ptr<Packet> ());
-  QueueEntry newEntry (p,header,ucb,ecb);
+  QueueEntry newEntry (p,header);
   bool result = m_queue.Enqueue (newEntry);
   if (result)
     {
@@ -335,13 +288,8 @@ RoutingProtocol::RouteInput (Ptr<const Packet> p,
   // Deferred route request
   if (idev == m_lo)
     {
-      DeferredRouteOutputTag tag;
-      if (p->PeekPacketTag (tag))
-        {
-          NS_LOG_FUNCTION("LEACH control message");
-          DeferredRouteOutput (p,header,ucb,ecb);
-          return true;
-        }
+      EnqueuePacket (p,header);
+      return true;
     }
   for (std::map<Ptr<Socket>, Ipv4InterfaceAddress>::const_iterator j =
          m_socketAddresses.begin (); j != m_socketAddresses.end (); ++j)
@@ -435,54 +383,6 @@ RoutingProtocol::RouteInput (Ptr<const Packet> p,
   return false;
 }
 
-Ptr<Ipv4Route>
-RoutingProtocol::LoopbackRoute (const Ipv4Header & hdr, Ptr<NetDevice> oif) const
-{
-  NS_ASSERT (m_lo != 0);
-  Ptr<Ipv4Route> rt = Create<Ipv4Route> ();
-  rt->SetDestination (hdr.GetDestination ());
-  // rt->SetSource (hdr.GetSource ());
-  //
-  // Source address selection here is tricky.  The loopback route is
-  // returned when LEACH does not have a route; this causes the packet
-  // to be looped back and handled (cached) in RouteInput() method
-  // while a route is found. However, connection-oriented protocols
-  // like TCP need to create an endpoint four-tuple (src, src port,
-  // dst, dst port) and create a pseudo-header for checksumming.  So,
-  // LEACH needs to guess correctly what the eventual source address
-  // will be.
-  //
-  // For single interface, single address nodes, this is not a problem.
-  // When there are possibly multiple outgoing interfaces, the policy
-  // implemented here is to pick the first available LEACH interface.
-  // If RouteOutput() caller specified an outgoing interface, that
-  // further constrains the selection of source address
-  //
-  std::map<Ptr<Socket>, Ipv4InterfaceAddress>::const_iterator j = m_socketAddresses.begin ();
-  if (oif)
-    {
-      // Iterate to find an address on the oif device
-      for (j = m_socketAddresses.begin (); j != m_socketAddresses.end (); ++j)
-        {
-          Ipv4Address addr = j->second.GetLocal ();
-          int32_t interface = m_ipv4->GetInterfaceForAddress (addr);
-          if (oif == m_ipv4->GetNetDevice (static_cast<uint32_t> (interface)))
-            {
-              rt->SetSource (addr);
-              break;
-            }
-        }
-    }
-  else
-    {
-      rt->SetSource (j->second.GetLocal ());
-    }
-  NS_ASSERT_MSG (rt->GetSource () != Ipv4Address (), "Valid LEACH source address not found");
-  rt->SetGateway (Ipv4Address ("127.0.0.1"));
-  rt->SetOutputDevice (m_lo);
-  return rt;
-}
-
 void
 RoutingProtocol::RecvLeach (Ptr<Socket> socket)
 {
@@ -494,11 +394,7 @@ RoutingProtocol::RecvLeach (Ptr<Socket> socket)
   double dist, dx, dy;
   LeachHeader leachHeader;
   Vector senderPosition;
-  OutputStreamWrapper temp = OutputStreamWrapper(&std::cout);
   
-  
-  
-  if(cluster_head_this_round) return;
   // maintain list of received advertisements
   // always choose the closest CH to join in
   // if itself is CH, pass this phase
@@ -507,7 +403,7 @@ RoutingProtocol::RecvLeach (Ptr<Socket> socket)
   if(leachHeader.GetAddress() == Ipv4Address("255.255.255.255")) {
     // Need to update a new route
     RoutingTableEntry newEntry (
-      /*device=*/ socket->GetBoundNetDevice(), /*dst (sink)*/Ipv4Address("10.1.1.1"),
+      /*device=*/ socket->GetBoundNetDevice(), /*dst (sink)*/m_sinkAddress,
       /*iface=*/ m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (receiver), 0),
       /*next hop=*/ sender);
     newEntry.SetFlag (VALID);
@@ -516,23 +412,19 @@ RoutingProtocol::RecvLeach (Ptr<Socket> socket)
     dx = senderPosition.x - m_position.x;
     dy = senderPosition.y - m_position.y;
     dist = dx*dx + dy*dy;
-
-//    newEntry.Print(&temp);
     
     if(dist < m_dist) {
       m_dist = dist;
       m_targetAddress = sender;
       m_bestRoute = newEntry;
       NS_LOG_DEBUG(sender);
-      
-//      m_bestRoute.Print(&temp);
     }
   }else {
     // Record cluster member
-    NS_LOG_DEBUG("Cluster head receive sendback");
     m_clusterMember.push_back(leachHeader.GetAddress());
-    for( unsigned i=0; i<m_clusterMember.size(); i++)
-      NS_LOG_FUNCTION("Cluster member: " << m_clusterMember[i]);
+//    NS_LOG_DEBUG("Cluster head receive sendback");
+//    for( unsigned i=0; i<m_clusterMember.size(); i++)
+//      NS_LOG_FUNCTION("Cluster member: " << m_clusterMember[i]);
   }
 }
 
@@ -547,19 +439,15 @@ RoutingProtocol::RespondToClusterHead()
   
   // Add routing to routingTable
   if(m_targetAddress != ipv4) {
-//    NS_LOG_DEBUG ("Received New Route!");
-//    m_bestRoute.Print(&temp);
-    RoutingTableEntry newEntry;
+    RoutingTableEntry newEntry, entry2;
     newEntry.Copy(m_bestRoute);
+    entry2.Copy(m_bestRoute);
     Ptr<Ipv4Route> newRoute = newEntry.GetRoute();
     newRoute->SetDestination(m_targetAddress);
     newEntry.SetRoute(newRoute);
 
-//    m_bestRoute.Print(&temp);
-//    newEntry.Print(&temp);
-    if(m_bestRoute.GetInterface().GetLocal() != ipv4) m_routingTable.AddRoute (m_bestRoute);
+    if(m_bestRoute.GetInterface().GetLocal() != ipv4) m_routingTable.AddRoute (entry2);
     if(newEntry.GetInterface().GetLocal() != ipv4) m_routingTable.AddRoute (newEntry);
-
 
     m_routingTable.Print(&temp);
 
@@ -572,30 +460,48 @@ RoutingProtocol::RespondToClusterHead()
 void
 RoutingProtocol::SendBroadcast ()
 {
-  Ptr<Socket> socket = Socket::CreateSocket (GetObject<Node> (),UdpSocketFactory::GetTypeId ());
+  Ptr<Socket> socket = FindSocketWithAddress (m_mainAddress);
+  
+  NS_LOG_DEBUG(socket);
+  
+  /*
   for (std::map<Ptr<Socket>, Ipv4InterfaceAddress>::const_iterator j = m_socketAddresses.begin (); j
        != m_socketAddresses.end (); ++j) {
     Ptr<Socket> socket = j->first;
+  */
     Ptr<Packet> packet = Create<Packet> ();
     LeachHeader leachHeader;
     Ipv4Address destination = Ipv4Address ("10.1.1.255");;
-
+  
     socket->SetAllowBroadcast (true);
 
     leachHeader.SetPosition (m_position);
     packet->AddHeader (leachHeader);
     socket->SendTo (packet, 0, InetSocketAddress (destination, LEACH_PORT));
-  }
+//  }
+  
+  NS_LOG_DEBUG(socket->GetBoundNetDevice());
+  
+  RoutingTableEntry newEntry (
+      /*device=*/ socket->GetBoundNetDevice(), /*dst (sink)*/m_sinkAddress,
+      /*iface=*/ m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (m_mainAddress), 0),
+      /*next hop=*/ m_sinkAddress);
+  m_routingTable.AddRoute (newEntry);
 }
   
 void
 RoutingProtocol::PeriodicUpdate ()
 {
   double prob = m_uniformRandomVariable->GetValue (0,1);
-  double t = 0.05/(1-0.05*(Round%20));
+  int n = 10;
+  double p = 1.0/n;
+  double t = p/(1-p*(Round%n));
   
   NS_LOG_DEBUG("PeriodicUpdate!!  " << m_position);
   NS_LOG_DEBUG("prob = " << prob << ", t = " << t);
+  
+  m_routingTable.DeleteRoute(m_targetAddress);
+  m_routingTable.DeleteRoute(m_sinkAddress);
   
   if(Round%20 == 0) valid = 1;
   Round++;
@@ -608,12 +514,12 @@ RoutingProtocol::PeriodicUpdate ()
   if(prob < t && valid) {
     // become cluster head
     // broadcast info
-    m_broadcastClusterHeadTimer.Schedule (Seconds(1)+MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
     valid = 0;
     cluster_head_this_round = 1;
-    m_targetAddress = Ipv4Address("10.1.1.1");
+    m_targetAddress = m_sinkAddress;
+    m_broadcastClusterHeadTimer.Schedule (MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
   }else {
-    m_respondToClusterHeadTimer.Schedule (Seconds(2)+MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
+    m_respondToClusterHeadTimer.Schedule (Seconds(1) + MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
   }
   m_periodicUpdateTimer.Schedule (m_periodicUpdateInterval + MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
 }
@@ -797,7 +703,7 @@ RoutingProtocol::Drop (Ptr<const Packet> packet,
 }
 
 void
-RoutingProtocol::LookForQueuedPackets ()
+RoutingProtocol::DataAggregation ()
 {
   NS_LOG_FUNCTION (this);
   Ptr<Ipv4Route> route;
@@ -826,7 +732,6 @@ RoutingProtocol::LookForQueuedPackets ()
                                                    << rt.GetNextHop ());
               NS_ASSERT (route != 0);
             }
-//          NS_LOG_DEBUG("out");
           SendPacketFromQueue (rt.GetDestination (),route);
         }
     }
@@ -840,21 +745,13 @@ RoutingProtocol::SendPacketFromQueue (Ipv4Address dst,
   QueueEntry queueEntry;
   if (m_queue.Dequeue (dst,queueEntry))
     {
-      DeferredRouteOutputTag tag;
       Ptr<Packet> p = ConstCast<Packet> (queueEntry.GetPacket ());
-      if (p->RemovePacketTag (tag))
-        {
-          if (tag.oif != -1 && tag.oif != m_ipv4->GetInterfaceForDevice (route->GetOutputDevice ()))
-            {
-              NS_LOG_DEBUG ("Output device doesn't match. Dropped.");
-              return;
-            }
-        }
-      UnicastForwardCallback ucb = queueEntry.GetUnicastForwardCallback ();
+      
+//      UnicastForwardCallback ucb = queueEntry.GetUnicastForwardCallback ();
       Ipv4Header header = queueEntry.GetIpv4Header ();
       header.SetSource (route->GetSource ());
       header.SetTtl (header.GetTtl () + 1); // compensate extra TTL decrement by fake loopback routing
-      ucb (route,p,header);
+//      ucb (route,p,header);
       if (m_queue.GetSize () != 0 && m_queue.Find (dst))
         {
           Simulator::Schedule (MilliSeconds (m_uniformRandomVariable->GetInteger (0,100)),

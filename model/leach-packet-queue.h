@@ -46,16 +46,10 @@ class QueueEntry
 {
 public:
   typedef Ipv4RoutingProtocol::UnicastForwardCallback UnicastForwardCallback;
-  typedef Ipv4RoutingProtocol::ErrorCallback ErrorCallback;
   /// c-tor
-  QueueEntry (Ptr<const Packet> pa = 0, Ipv4Header const & h = Ipv4Header (),
-              UnicastForwardCallback ucb = UnicastForwardCallback (),
-              ErrorCallback ecb = ErrorCallback ())
+  QueueEntry (Ptr<const Packet> pa = 0, Ipv4Header const & h = Ipv4Header ())
     : m_packet (pa),
-      m_header (h),
-      m_ucb (ucb),
-      m_ecb (ecb),
-      m_expire (Seconds (0))
+      m_header (h)
   {
   }
 
@@ -65,26 +59,10 @@ public:
    */
   bool operator== (QueueEntry const & o) const
   {
-    return ((m_packet == o.m_packet) && (m_header.GetDestination () == o.m_header.GetDestination ()) && (m_expire == o.m_expire));
+    return ((m_packet == o.m_packet) && (m_header.GetDestination () == o.m_header.GetDestination ()));
   }
   
   // Fields
-  UnicastForwardCallback GetUnicastForwardCallback () const
-  {
-    return m_ucb;
-  }
-  void SetUnicastForwardCallback (UnicastForwardCallback ucb)
-  {
-    m_ucb = ucb;
-  }
-  ErrorCallback GetErrorCallback () const
-  {
-    return m_ecb;
-  }
-  void SetErrorCallback (ErrorCallback ecb)
-  {
-    m_ecb = ecb;
-  }
   Ptr<const Packet> GetPacket () const
   {
     return m_packet;
@@ -101,26 +79,12 @@ public:
   {
     m_header = h;
   }
-  void SetExpireTime (Time exp)
-  {
-    m_expire = exp + Simulator::Now ();
-  }
-  Time GetExpireTime () const
-  {
-    return m_expire - Simulator::Now ();
-  }
 
 private:
   /// Data packet
   Ptr<const Packet> m_packet;
   /// IP header
   Ipv4Header m_header;
-  /// Unicast forward callback
-  UnicastForwardCallback m_ucb;
-  /// Error callback
-  ErrorCallback m_ecb;
-  /// Expire time for queue entry
-  Time m_expire;
 };
 /**
  * \ingroup leach
@@ -179,8 +143,6 @@ public:
 
 private:
   std::vector<QueueEntry> m_queue;
-  /// Remove all expired entries
-  void Purge ();
   /// Notify that packet is dropped from queue by timeout
   void Drop (QueueEntry en, std::string reason);
   /// The maximum number of packets that we allow a routing protocol to buffer.

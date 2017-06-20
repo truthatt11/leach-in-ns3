@@ -43,7 +43,6 @@ namespace leach {
 uint32_t
 PacketQueue::GetSize ()
 {
-  Purge ();
   return m_queue.size ();
 }
 
@@ -51,7 +50,6 @@ bool
 PacketQueue::Enqueue (QueueEntry & entry)
 {
   NS_LOG_FUNCTION ("Enqueing packet destined for" << entry.GetIpv4Header ().GetDestination ());
-  Purge ();
   uint32_t numPacketswithdst;
   for (std::vector<QueueEntry>::const_iterator i = m_queue.begin (); i
        != m_queue.end (); ++i)
@@ -74,7 +72,6 @@ PacketQueue::Enqueue (QueueEntry & entry)
   else
     {
       // NS_LOG_DEBUG("Packet size while enqueing "<<entry.GetPacket()->GetSize());
-      entry.SetExpireTime (m_queueTimeout);
       m_queue.push_back (entry);
       return true;
     }
@@ -84,7 +81,6 @@ void
 PacketQueue::DropPacketWithDst (Ipv4Address dst)
 {
   NS_LOG_FUNCTION ("Dropping packet to " << dst);
-  Purge ();
   for (std::vector<QueueEntry>::iterator i = m_queue.begin (); i
        != m_queue.end (); ++i)
     {
@@ -101,7 +97,6 @@ bool
 PacketQueue::Dequeue (Ipv4Address dst, QueueEntry & entry)
 {
   NS_LOG_FUNCTION ("Dequeueing packet destined for" << dst);
-  Purge ();
   for (std::vector<QueueEntry>::iterator i = m_queue.begin (); i != m_queue.end (); ++i)
     {
       if (i->GetIpv4Header ().GetDestination () == dst)
@@ -144,40 +139,10 @@ PacketQueue::GetCountForPacketsWithDst (Ipv4Address dst)
   return count;
 }
 
-struct IsExpired
-{
-  bool
-  operator() (QueueEntry const & e) const
-  {
-    // NS_LOG_DEBUG("Expire time for packet in req queue: "<<e.GetExpireTime ());
-    return (e.GetExpireTime () < Seconds (0));
-  }
-};
-
-void
-PacketQueue::Purge ()
-{
-  // NS_LOG_DEBUG("Purging Queue");
-  IsExpired pred;
-  for (std::vector<QueueEntry>::iterator i = m_queue.begin (); i
-       != m_queue.end (); ++i)
-    {
-      if (pred (*i))
-        {
-          NS_LOG_DEBUG ("Dropping outdated Packets");
-          Drop (*i, "Drop outdated packet ");
-        }
-    }
-  m_queue.erase (std::remove_if (m_queue.begin (), m_queue.end (), pred),
-                 m_queue.end ());
-}
-
 void
 PacketQueue::Drop (QueueEntry en, std::string reason)
 {
   NS_LOG_LOGIC (reason << en.GetPacket ()->GetUid () << " " << en.GetIpv4Header ().GetDestination ());
-  // en.GetErrorCallback () (en.GetPacket (), en.GetIpv4Header (),
-  //   Socket::ERROR_NOROUTETOHOST);
   return;
 }
 
