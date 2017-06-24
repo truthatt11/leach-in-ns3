@@ -8,7 +8,9 @@ def build(bld):
         'model/leach-packet-queue.cc',
         'model/leach-packet.cc',
         'model/leach-routing-protocol.cc',
+        'model/wsn-application.cc',
         'helper/leach-helper.cc',
+        'helper/wsn-helper.cc',
         ]
 
     module_test = bld.create_ns3_module_test_library('leach')
@@ -23,7 +25,9 @@ def build(bld):
         'model/leach-packet-queue.h',
         'model/leach-packet.h',
         'model/leach-routing-protocol.h',
+        'model/wsn-application.h',
         'helper/leach-helper.h',
+        'helper/wsn-helper.h',
         ]
     if (bld.env['ENABLE_EXAMPLES']):
       bld.recurse('examples')

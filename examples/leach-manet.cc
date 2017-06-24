@@ -35,6 +35,7 @@
 #include "ns3/config-store-module.h"
 #include "ns3/internet-module.h"
 #include "ns3/leach-helper.h"
+#include "ns3/wsn-helper.h"
 #include "ns3/wifi-module.h"
 #include "ns3/vector.h"
 #include <iostream>
@@ -110,8 +111,8 @@ int main (int argc, char **argv)
 
   SeedManager::SetSeed (12345);
 
-  Config::SetDefault ("ns3::OnOffApplication::PacketSize", StringValue ("256"));
-  Config::SetDefault ("ns3::OnOffApplication::DataRate", StringValue (rate));
+  Config::SetDefault ("ns3::WsnApplication::PacketSize", StringValue ("64"));
+  Config::SetDefault ("ns3::WsnApplication::DataRate", StringValue (rate));
   Config::SetDefault ("ns3::WifiRemoteStationManager::NonUnicastMode", StringValue (phyMode));
   Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold", StringValue ("2000"));
 
@@ -130,7 +131,7 @@ LeachManetExample::LeachManetExample ()
 void
 LeachManetExample::ReceivePacket (Ptr <Socket> socket)
 {
-//  NS_LOG_UNCOND (Simulator::Now ().GetSeconds () << " Received one packet!");
+  NS_LOG_UNCOND (Simulator::Now ().GetSeconds () << " Received one packet!");
   Ptr <Packet> packet;
   while ((packet = socket->Recv ()))
     {
@@ -276,13 +277,15 @@ LeachManetExample::InstallApplications ()
   Ipv4Address nodeAddress = node->GetObject<Ipv4> ()->GetAddress (1, 0).GetLocal ();
   Ptr<Socket> sink = SetupPacketReceive (nodeAddress, node);
   
-  OnOffHelper onoff1 ("ns3::UdpSocketFactory", Address (InetSocketAddress (interfaces.GetAddress (0), port)));
-  onoff1.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"));
-  onoff1.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0.0]"));
+  WsnHelper wsn1 ("ns3::UdpSocketFactory", Address (InetSocketAddress (interfaces.GetAddress (0), port)));
+  wsn1.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"));
+  wsn1.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0.0]"));
+  wsn1.SetAttribute ("PacketDeadlineLen", IntegerValue(3));  // default
+  wsn1.SetAttribute ("PacketDeadlineMin", IntegerValue(5));  // default
   
   for (uint32_t clientNode = 1; clientNode <= m_nWifis - 1; clientNode++ )
     {
-      ApplicationContainer apps1 = onoff1.Install (nodes.Get (clientNode));
+      ApplicationContainer apps1 = wsn1.Install (nodes.Get (clientNode));
       Ptr<UniformRandomVariable> var = CreateObject<UniformRandomVariable> ();
       apps1.Start (Seconds (var->GetValue (m_dataStart, m_dataStart + 1)));
       apps1.Stop (Seconds (m_totalTime));

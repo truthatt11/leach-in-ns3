@@ -44,7 +44,7 @@ namespace leach {
  * \ingroup leach
  * \brief LEACH Update Packet Format
  * \verbatim
- |      0        |      1        |      2        |       3       |
+ |       0       |       2       |       4       |       6       |
   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  |                           Vector .x                           |
@@ -53,7 +53,9 @@ namespace leach {
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  |                           Vector .z                           |
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- |                          Member to be                         |
+ |        Member IP to be        |                               |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |                           Deadline                            |
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
  * \endverbatim
  */
@@ -61,7 +63,7 @@ namespace leach {
 class LeachHeader : public Header
 {
 public:
-  LeachHeader (Vector position = Vector(0.0, 0.0, 0.0), Ipv4Address address = Ipv4Address("255.255.255.255"));
+  LeachHeader (Vector position = Vector(0.0, 0.0, 0.0), Ipv4Address address = Ipv4Address("255.255.255.255"), Time m = Time(0));
   virtual ~LeachHeader ();
   static TypeId GetTypeId (void);
   virtual TypeId GetInstanceTypeId (void) const;
@@ -91,9 +93,28 @@ public:
   {
     return m_address;
   }
+  
+  void
+  SetDeadline (Time t)
+  {
+    m_deadline = t;
+  }
+  Time
+  GetDeadline () const
+  {
+    return m_deadline;
+  }
+  
+  void
+  Test4 () const
+  {
+    std::cout << "test4: " << &m_address << ", " << &m_position << ", " << &m_deadline << ", " << sizeof(m_deadline) << ", " << sizeof(*this) << std::endl;
+  }
+  
 private:
   Vector m_position; ///< (X, Y, Z) position
   Ipv4Address m_address;
+  Time m_deadline;
 };
 static inline std::ostream & operator<< (std::ostream& os, const LeachHeader & packet)
 {

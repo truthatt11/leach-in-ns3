@@ -143,9 +143,9 @@ private:
   /// Queue packet until we find a route
   void
   EnqueuePacket (Ptr<const Packet> p, const Ipv4Header & header);
-  /// Look for any queued packets to send them out
-  void
-  DataAggregation (void);
+  /// Decide whether to send the packets in the buffer
+  bool
+  DataAggregation (Ptr<Packet> p);
   /**
    * Send packet from queue
    * \param dst - destination address to which we are sending the packet to

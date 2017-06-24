@@ -64,7 +64,7 @@ PacketQueue::Enqueue (QueueEntry & entry)
   numPacketswithdst = GetCountForPacketsWithDst (entry.GetIpv4Header ().GetDestination ());
   NS_LOG_DEBUG ("Number of packets with this destination: " << numPacketswithdst);
   /** For Brock Paper comparision*/
-  if (numPacketswithdst >= m_maxLenPerDst || m_queue.size () >= m_maxLen)
+  if (m_queue.size () >= m_maxLen)
     {
       NS_LOG_DEBUG ("Max packets reached for this destination. Not queuing any further packets");
       return false;
@@ -78,11 +78,17 @@ PacketQueue::Enqueue (QueueEntry & entry)
 }
 
 void
+PacketQueue::Drop (uint32_t idx)
+{
+  m_queue.erase(m_queue.begin()+idx);
+}
+
+void
 PacketQueue::DropPacketWithDst (Ipv4Address dst)
 {
   NS_LOG_FUNCTION ("Dropping packet to " << dst);
-  for (std::vector<QueueEntry>::iterator i = m_queue.begin (); i
-       != m_queue.end (); ++i)
+  for (std::vector<QueueEntry>::iterator i = m_queue.begin ();
+       i != m_queue.end (); ++i)
     {
       if (IsEqual (*i, dst))
         {

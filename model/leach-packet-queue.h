@@ -35,6 +35,10 @@
 #include <vector>
 #include "ns3/ipv4-routing-protocol.h"
 #include "ns3/simulator.h"
+#include "ns3/leach-packet.h"
+#include "ns3/udp-header.h"
+
+#include <iostream>
 
 namespace ns3 {
 namespace leach {
@@ -51,6 +55,14 @@ public:
     : m_packet (pa),
       m_header (h)
   {
+    if(pa != 0) {
+      Packet a (*pa);
+      LeachHeader hdr;
+      UdpHeader uhdr;
+      a.RemoveHeader(uhdr);
+      a.RemoveHeader(hdr);
+      m_deadline = hdr.GetDeadline();
+    }
   }
 
   /**
@@ -79,13 +91,24 @@ public:
   {
     m_header = h;
   }
+  Time GetDeadline () const
+  {
+    return m_deadline;
+  }
+  void SetDeadline (Time d)
+  {
+    m_deadline = d;
+  }
 
 private:
   /// Data packet
   Ptr<const Packet> m_packet;
   /// IP header
   Ipv4Header m_header;
+  /// Deadline
+  Time m_deadline;
 };
+
 /**
  * \ingroup leach
  * \brief LEACH Packet queue
@@ -109,9 +132,10 @@ public:
   void DropPacketWithDst (Ipv4Address dst);
   /// Finds whether a packet with destination dst exists in the queue
   bool Find (Ipv4Address dst);
+  /// Drop the idx-th entry
+  void Drop (uint32_t idx);
   /// Get count of packets with destination dst in the queue
-  uint32_t
-  GetCountForPacketsWithDst (Ipv4Address dst);
+  uint32_t GetCountForPacketsWithDst (Ipv4Address dst);
   /// Number of entries
   uint32_t GetSize ();
   
@@ -124,14 +148,6 @@ public:
   {
     m_maxLen = len;
   }
-  uint32_t GetMaxPacketsPerDst () const
-  {
-    return m_maxLenPerDst;
-  }
-  void SetMaxPacketsPerDst (uint32_t len)
-  {
-    m_maxLenPerDst = len;
-  }
   Time GetQueueTimeout () const
   {
     return m_queueTimeout;
@@ -140,6 +156,10 @@ public:
   {
     m_queueTimeout = t;
   }
+  QueueEntry& operator[] (size_t idx)
+  {
+    return m_queue[idx];
+  }
 
 private:
   std::vector<QueueEntry> m_queue;
@@ -147,8 +167,6 @@ private:
   void Drop (QueueEntry en, std::string reason);
   /// The maximum number of packets that we allow a routing protocol to buffer.
   uint32_t m_maxLen;
-  /// The maximum number of packets that we allow per destination to buffer.
-  uint32_t m_maxLenPerDst;
   /// The maximum period of time that a routing protocol is allowed to buffer a packet for, seconds.
   Time m_queueTimeout;
   static bool IsEqual (QueueEntry en, const Ipv4Address dst)
