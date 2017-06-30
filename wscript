@@ -1,7 +1,7 @@
 ## -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
 
 def build(bld):
-    module = bld.create_ns3_module('leach', ['internet'])
+    module = bld.create_ns3_module('leach-simple', ['internet'])
     module.includes = '.'
     module.source = [
         'model/leach-rtable.cc',
@@ -13,7 +13,7 @@ def build(bld):
         'helper/wsn-helper.cc',
         ]
 
-    module_test = bld.create_ns3_module_test_library('leach')
+    module_test = bld.create_ns3_module_test_library('leach-simple')
     module_test.source = [
         'test/leach-testcase.cc',
         ]
@@ -32,4 +32,4 @@ def build(bld):
     if (bld.env['ENABLE_EXAMPLES']):
       bld.recurse('examples')
 
-    bld.ns3_python_bindings()
+##    bld.ns3_python_bindings()

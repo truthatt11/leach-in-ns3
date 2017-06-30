@@ -76,7 +76,7 @@ public:
   virtual void NotifyAddAddress (uint32_t interface, Ipv4InterfaceAddress address);
   virtual void NotifyRemoveAddress (uint32_t interface, Ipv4InterfaceAddress address);
   virtual void SetIpv4 (Ptr<Ipv4> ipv4);
-
+  
   // Methods to handle protocol parameters
   void SetPosition (Vector f);
   Vector GetPosition () const;
@@ -101,6 +101,7 @@ private:
   uint32_t valid;
   uint32_t cluster_head_this_round;
   uint32_t isSink;
+
   /// PeriodicUpdateInterval specifies the periodic time interval between which the a node broadcasts
   /// its entire routing table.
   Time m_periodicUpdateInterval;
@@ -151,8 +152,9 @@ private:
    * \param dst - destination address to which we are sending the packet to
    * \param route - route identified for this packet
    */
-  void
-  SendPacketFromQueue (Ipv4Address dst, Ptr<Ipv4Route> route);
+//  void
+//  SendPacketFromQueue (Ipv4Address dst, Ptr<Ipv4Route> route);
+
   /// Find socket with local interface address iface
   Ptr<Socket>
   FindSocketWithInterfaceAddress (Ipv4InterfaceAddress iface) const;
