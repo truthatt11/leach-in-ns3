@@ -181,6 +181,7 @@ RoutingProtocol::RouteOutput (Ptr<Packet> p,
   
   sockerr = Socket::ERROR_NOTERROR;
   Ptr<Ipv4Route> route;
+
 #ifdef DA
   Ipv4Address src = header.GetSource ();
 #endif

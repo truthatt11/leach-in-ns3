@@ -121,6 +121,7 @@ WsnApplication::WsnApplication ()
 WsnApplication::~WsnApplication()
 {
   NS_LOG_FUNCTION (this);
+
 //  NS_LOG_UNCOND(m_pktCount);
 }
 

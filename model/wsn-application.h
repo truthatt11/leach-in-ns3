@@ -108,6 +108,9 @@ public:
    */
   void SetMaxBytes (uint64_t maxBytes);
 
+  /// Get total count of packet generated
+  uint32_t GetPktCount() const;
+
   /**
    * \brief Return a pointer to associated socket.
    * \return pointer to associated socket
@@ -167,6 +170,7 @@ private:
   TypeId          m_tid;          //!< Type of the socket used
   int64_t         m_pktDeadlineMin;  //!< Packet Expired Time Min
   int64_t         m_pktDeadlineLen;  //!< Packet Expired Time Len
+
   TracedValue<uint32_t>      m_pktCount;     //!< Total packet count
 
   /// Traced Callback: transmitted packets.
