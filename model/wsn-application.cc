@@ -69,7 +69,7 @@ WsnApplication::GetTypeId (void)
                    IntegerValue (3),
                    MakeIntegerAccessor (&WsnApplication::m_pktDeadlineLen),
                    MakeIntegerChecker<int64_t> (1))
-    .AddAttribute ("PacketDeadlineMin", "The minimum deadline range of packets",
+    .AddAttribute ("PacketDeadlineMin", "The minimum deadline of packets",
                    IntegerValue (5),
                    MakeIntegerAccessor (&WsnApplication::m_pktDeadlineMin),
                    MakeIntegerChecker<int64_t> (1))
@@ -99,6 +99,9 @@ WsnApplication::GetTypeId (void)
     .AddTraceSource ("Tx", "A new packet is created and is sent",
                      MakeTraceSourceAccessor (&WsnApplication::m_txTrace),
                      "ns3::Packet::TracedCallback")
+    .AddTraceSource ("PktCount", "Total packets count",
+                     MakeTraceSourceAccessor (&WsnApplication::m_pktCount),
+                     "ns3::TracedValueCallback::Uint32")
   ;
   return tid;
 }
@@ -109,7 +112,8 @@ WsnApplication::WsnApplication ()
     m_connected (false),
     m_residualBits (0),
     m_lastStartTime (Seconds (0)),
-    m_totBytes (0)
+    m_totBytes (0),
+    m_pktCount (0)
 {
   NS_LOG_FUNCTION (this);
 }
@@ -117,6 +121,7 @@ WsnApplication::WsnApplication ()
 WsnApplication::~WsnApplication()
 {
   NS_LOG_FUNCTION (this);
+//  NS_LOG_UNCOND(m_pktCount);
 }
 
 void 
@@ -285,6 +290,7 @@ void WsnApplication::SendPacket ()
   Ptr<UniformRandomVariable> m_uniformRandomVariable = CreateObject<UniformRandomVariable> ();
   int64_t temp = (m_uniformRandomVariable->GetInteger(0, m_pktDeadlineLen) + m_pktDeadlineMin)*1000000000 + Now ().ToInteger(Time::NS);
   
+  m_pktCount++;
   hdr.SetDeadline(Time(temp));
   NS_LOG_INFO(temp << ", " << hdr.GetDeadline());
   packet->AddHeader(hdr);
@@ -313,7 +319,6 @@ void WsnApplication::SendPacket ()
   m_residualBits = 0;
   ScheduleNextTx ();
 }
-
 
 void WsnApplication::ConnectionSucceeded (Ptr<Socket> socket)
 {

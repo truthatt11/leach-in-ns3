@@ -43,6 +43,10 @@
 
 #include <iostream>
 
+
+#define DA
+
+
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("LeachRoutingProtocol");
@@ -177,27 +181,30 @@ RoutingProtocol::RouteOutput (Ptr<Packet> p,
   
   sockerr = Socket::ERROR_NOTERROR;
   Ptr<Ipv4Route> route;
+#ifdef DA
   Ipv4Address src = header.GetSource ();
+#endif
   Ipv4Address dst = header.GetDestination ();
   RoutingTableEntry rt;
   NS_LOG_DEBUG ("Packet Size: " << p->GetSize ()
                                 << ", Packet id: " << p->GetUid () << ", Destination address in Packet: " << dst);
-
+#ifdef DA
   if (src == m_mainAddress) EnqueuePacket(p, header);
   
-  if (DataAggregation (p))
-    {
+  if (DataAggregation (p)) {
+#endif
       if (m_routingTable.LookupRoute (dst,rt))
         {
-          m_routingTable.Print(&temp);
+          // m_routingTable.Print(&temp);
           // RouteOutput only concerns a single packet
           // The packet that triggers RouteOutput
           // How to aggregate and send?
           // SendPacketFromQueue?
           return rt.GetRoute();
         }
+#ifdef DA
     }
-//  EnqueuePacket(p, header);
+#endif
 
   return LoopbackRoute (header,oif);
 }
@@ -285,7 +292,9 @@ RoutingProtocol::RouteInput (Ptr<const Packet> p,
   // Deferred route request
   if (idev == m_lo)
     {
+#ifdef DA
       EnqueuePacket (p,header);
+#endif
       return true;
     }
   for (std::map<Ptr<Socket>, Ipv4InterfaceAddress>::const_iterator j =
@@ -374,8 +383,8 @@ RoutingProtocol::RouteInput (Ptr<const Packet> p,
                                       << " to " << dst
                                       << " from " << header.GetSource ()
                                       << " via nexthop neighbor " << toDst.GetNextHop ());
-          EnqueuePacket(p, header);
-//          ucb (route,p,header);
+//          EnqueuePacket(p, header);
+          ucb (route,p,header);
           return true;
         }
     }
@@ -447,7 +456,7 @@ RoutingProtocol::RespondToClusterHead()
     if(m_bestRoute.GetInterface().GetLocal() != ipv4) m_routingTable.AddRoute (entry2);
     if(newEntry.GetInterface().GetLocal() != ipv4) m_routingTable.AddRoute (newEntry);
 
-    m_routingTable.Print(&temp);
+//    m_routingTable.Print(&temp);
 
     leachHeader.SetAddress(m_mainAddress);
     packet->AddHeader (leachHeader);
@@ -709,6 +718,10 @@ RoutingProtocol::DataAggregation (Ptr<Packet> p)
   // Implement data aggregation policy
   // and data addgregation function
   
+#ifndef DA
+  return true;
+#endif
+  
   NS_LOG_FUNCTION (this);
   // pick up those selected entry and send
   int reward = 0, expected = 0;
@@ -745,29 +758,6 @@ RoutingProtocol::DataAggregation (Ptr<Packet> p)
   }
   
   return false;
-}
-
-void
-RoutingProtocol::SendPacketFromQueue (Ipv4Address dst,
-                                      Ptr<Ipv4Route> route)
-{
-  NS_LOG_DEBUG (m_mainAddress << " is sending a queued packet to destination " << dst);
-  QueueEntry queueEntry;
-  if (m_queue.Dequeue (dst,queueEntry))
-    {
-      Ptr<Packet> p = ConstCast<Packet> (queueEntry.GetPacket ());
-      
-//      UnicastForwardCallback ucb = queueEntry.GetUnicastForwardCallback ();
-      Ipv4Header header = queueEntry.GetIpv4Header ();
-      header.SetSource (route->GetSource ());
-      header.SetTtl (header.GetTtl () + 1); // compensate extra TTL decrement by fake loopback routing
-//      ucb (route,p,header);
-      if (m_queue.GetSize () != 0 && m_queue.Find (dst))
-        {
-          Simulator::Schedule (MilliSeconds (m_uniformRandomVariable->GetInteger (0,100)),
-                               &RoutingProtocol::SendPacketFromQueue,this,dst,route);
-        }
-    }
 }
 
 }

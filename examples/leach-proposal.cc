@@ -37,7 +37,10 @@
 #include "ns3/leach-helper.h"
 #include "ns3/wsn-helper.h"
 #include "ns3/wifi-module.h"
+#include "ns3/energy-module.h"
 #include "ns3/vector.h"
+#include "ns3/leach-packet.h"
+#include "ns3/udp-header.h"
 #include <iostream>
 #include <cmath>
 
@@ -45,13 +48,39 @@
 using namespace ns3;
 
 uint16_t port = 9;
+uint32_t packetsGenerated = 0;
 
-NS_LOG_COMPONENT_DEFINE ("LeachManetExample");
+NS_LOG_COMPONENT_DEFINE ("LeachProposal");
 
-class LeachManetExample
+
+/// Trace function for remaining energy at node.
+void
+RemainingEnergy (double oldValue, double remainingEnergy)
+{
+  NS_LOG_UNCOND (Simulator::Now ().GetSeconds ()
+                 << "s Current remaining energy = " << remainingEnergy << "J");
+}
+
+/// Trace function for total energy consumption at node.
+void
+TotalEnergy (double oldValue, double totalEnergy)
+{
+  NS_LOG_UNCOND (Simulator::Now ().GetSeconds ()
+                 << "s Total energy consumed by radio = " << totalEnergy << "J");
+}
+
+/// record packet counts
+void
+TotalPackets (uint32_t oldValue, uint32_t newValue)
+{
+  packetsGenerated += (newValue - oldValue);
+}
+
+
+class LeachProposal
 {
 public:
-  LeachManetExample ();
+  LeachProposal ();
   void CaseRun (uint32_t nWifis,
                 uint32_t nSinks,
                 double totalTime,
@@ -70,11 +99,14 @@ private:
   double m_dataStart;
   uint32_t bytesTotal;
   uint32_t packetsReceived;
+  uint32_t packetsDecompressed;
   Vector positions[105];
 
   NodeContainer nodes;
   NetDeviceContainer devices;
   Ipv4InterfaceContainer interfaces;
+  
+  EnergySourceContainer sources;
 
 private:
   void CreateNodes ();
@@ -82,26 +114,27 @@ private:
   void InstallInternetStack (std::string tr_name);
   void InstallApplications ();
   void SetupMobility ();
+  void SetupEnergyModel ();
   void ReceivePacket (Ptr <Socket> );
   Ptr <Socket> SetupPacketReceive (Ipv4Address, Ptr <Node> );
-//  void CheckThroughput ();
 
 };
 
 int main (int argc, char **argv)
 {
-  LeachManetExample test;
+  LeachProposal test;
   uint32_t nWifis = 30;
   uint32_t nSinks = 1;
   double totalTime = 50.0;
+//  double totalTime = 20.0;
   std::string rate ("8kbps");
   std::string phyMode ("DsssRate11Mbps");
   uint32_t periodicUpdateInterval = 15;
   double dataStart = 20.0;
 
   CommandLine cmd;
-  cmd.AddValue ("nWifis", "Number of lr-wpan nodes[Default:30]", nWifis);
-  cmd.AddValue ("nSinks", "Number of lr-wpan sink nodes[Default:1]", nSinks);
+  cmd.AddValue ("nWifis", "Number of WiFi nodes[Default:30]", nWifis);
+  cmd.AddValue ("nSinks", "Number of WiFi sink nodes[Default:1]", nSinks);
   cmd.AddValue ("totalTime", "Total Simulation time[Default:50]", totalTime);
   cmd.AddValue ("phyMode", "Wifi Phy mode[Default:DsssRate11Mbps]", phyMode);
   cmd.AddValue ("rate", "CBR traffic rate[Default:8kbps]", rate);
@@ -116,54 +149,64 @@ int main (int argc, char **argv)
   Config::SetDefault ("ns3::WifiRemoteStationManager::NonUnicastMode", StringValue (phyMode));
   Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold", StringValue ("2000"));
 
-  test = LeachManetExample ();
+  test = LeachProposal ();
   test.CaseRun (nWifis, nSinks, totalTime, rate, phyMode, periodicUpdateInterval, dataStart);
-
+  
   return 0;
 }
 
-LeachManetExample::LeachManetExample ()
+LeachProposal::LeachProposal ()
   : bytesTotal (0),
-    packetsReceived (0)
+    packetsReceived (0),
+    packetsDecompressed (0)
 {
 }
 
 void
-LeachManetExample::ReceivePacket (Ptr <Socket> socket)
+LeachProposal::ReceivePacket (Ptr <Socket> socket)
 {
   NS_LOG_UNCOND (Simulator::Now ().GetSeconds () << " Received one packet!");
   Ptr <Packet> packet;
+  
   while ((packet = socket->Recv ()))
     {
-      bytesTotal += packet->GetSize ();
-      packetsReceived += 1;
+      leach::LeachHeader leachHeader;
+      UdpHeader udpHeader;
+      
+      bytesTotal += packet->GetSize();
+      packet->RemoveHeader(leachHeader);
+      if(leachHeader.GetDeadline() > Simulator::Now()) packetsDecompressed++;
+      packet->RemoveAtStart(16);
+
+      while(packet->GetSize()>0) {
+        packet->RemoveHeader(udpHeader);
+        packet->RemoveHeader(leachHeader);
+        packet->RemoveAtStart(16);
+        
+        if(leachHeader.GetDeadline() > Simulator::Now()) packetsDecompressed++;
+      }
+      packetsReceived++;
     }
 }
-/*
-void
-LeachManetExample::CheckThroughput ()
-{
-  bytesTotal = 0;
 
-  packetsReceived = 0;
-  Simulator::Schedule (Seconds (1.0), &LeachManetExample::CheckThroughput, this);
-}
-*/
 Ptr <Socket>
-LeachManetExample::SetupPacketReceive (Ipv4Address addr, Ptr <Node> node)
+LeachProposal::SetupPacketReceive (Ipv4Address addr, Ptr <Node> node)
 {
 
   TypeId tid = TypeId::LookupByName ("ns3::UdpSocketFactory");
   Ptr <Socket> sink = Socket::CreateSocket (node, tid);
   InetSocketAddress local = InetSocketAddress (addr, port);
+  
+  NS_LOG_INFO(addr);
+  
   sink->Bind (local);
-  sink->SetRecvCallback (MakeCallback ( &LeachManetExample::ReceivePacket, this));
+  sink->SetRecvCallback (MakeCallback ( &LeachProposal::ReceivePacket, this));
 
   return sink;
 }
 
 void
-LeachManetExample::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std::string rate,
+LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std::string rate,
                            std::string phyMode, uint32_t periodicUpdateInterval, double dataStart)
 {
   m_nWifis = nWifis;
@@ -188,6 +231,7 @@ LeachManetExample::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, 
   CreateNodes ();
   CreateDevices ();
   SetupMobility ();
+  SetupEnergyModel();
   InstallInternetStack (tr_name);
   InstallApplications ();
 
@@ -197,11 +241,23 @@ LeachManetExample::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, 
 
   Simulator::Stop (Seconds (m_totalTime));
   Simulator::Run ();
+
+  NS_LOG_UNCOND ("Total bytes received: " << bytesTotal);
+  NS_LOG_UNCOND ("Total packets received/decompressed/generated: " << packetsReceived << "/" << packetsDecompressed << "/" << packetsGenerated);
+  for (uint32_t i=0; i<m_nWifis; i++)
+    {
+      Ptr<BasicEnergySource> basicSourcePtr = DynamicCast<BasicEnergySource> (sources.Get (i));
+      Ptr<DeviceEnergyModel> basicRadioModelPtr = basicSourcePtr->FindDeviceEnergyModels ("ns3::WifiRadioEnergyModel").Get (0);
+      Ptr<WifiRadioEnergyModel> ptr = DynamicCast<WifiRadioEnergyModel> (basicRadioModelPtr);
+      NS_ASSERT (basicRadioModelPtr != NULL);
+      NS_LOG_UNCOND("Idle time: " << ptr->GetIdleTime() << ", Tx Time: " << ptr->GetTxTime() << ", Rx Time: " << ptr->GetRxTime());
+    }
+
   Simulator::Destroy ();
 }
 
 void
-LeachManetExample::CreateNodes ()
+LeachProposal::CreateNodes ()
 {
   std::cout << "Creating " << (unsigned) m_nWifis << " nodes.\n";
   nodes.Create (m_nWifis);
@@ -209,7 +265,7 @@ LeachManetExample::CreateNodes ()
 }
 
 void
-LeachManetExample::SetupMobility ()
+LeachProposal::SetupMobility ()
 {
   MobilityHelper mobility;
   ObjectFactory pos;
@@ -231,7 +287,38 @@ LeachManetExample::SetupMobility ()
 }
 
 void
-LeachManetExample::CreateDevices ()
+LeachProposal::SetupEnergyModel()
+{
+  /** Energy Model **/
+  /***************************************************************************/
+  /* energy source */
+  BasicEnergySourceHelper basicSourceHelper;
+  // configure energy source
+  basicSourceHelper.Set ("BasicEnergySourceInitialEnergyJ", DoubleValue (100));
+  // install source
+  /*EnergySourceContainer */sources = basicSourceHelper.Install (nodes);
+  /* device energy model */
+  WifiRadioEnergyModelHelper radioEnergyHelper;
+  // install device model
+  DeviceEnergyModelContainer deviceModels = radioEnergyHelper.Install (devices, sources);
+  /***************************************************************************/
+  
+  /*
+  for (uint32_t i=0; i<m_nWifis; i++)
+    {
+      Ptr<BasicEnergySource> basicSourcePtr = DynamicCast<BasicEnergySource> (sources.Get (i));
+      basicSourcePtr->TraceConnectWithoutContext ("RemainingEnergy", MakeCallback (&RemainingEnergy));
+      // device energy model
+      Ptr<DeviceEnergyModel> basicRadioModelPtr =
+        basicSourcePtr->FindDeviceEnergyModels ("ns3::WifiRadioEnergyModel").Get (0);
+      NS_ASSERT (basicRadioModelPtr != NULL);
+      basicRadioModelPtr->TraceConnectWithoutContext ("TotalEnergyConsumption", MakeCallback (&TotalEnergy));
+    }
+  */
+}
+
+void
+LeachProposal::CreateDevices ()
 {
   WifiMacHelper wifiMac;
   wifiMac.SetType ("ns3::AdhocWifiMac");
@@ -251,7 +338,7 @@ LeachManetExample::CreateDevices ()
 }
 
 void
-LeachManetExample::InstallInternetStack (std::string tr_name)
+LeachProposal::InstallInternetStack (std::string tr_name)
 {
   LeachHelper leach;
   leach.Set ("PeriodicUpdateInterval", TimeValue (Seconds (m_periodicUpdateInterval)));
@@ -271,7 +358,7 @@ LeachManetExample::InstallInternetStack (std::string tr_name)
 }
 
 void
-LeachManetExample::InstallApplications ()
+LeachProposal::InstallApplications ()
 {
   Ptr<Node> node = NodeList::GetNode (0);
   Ipv4Address nodeAddress = node->GetObject<Ipv4> ()->GetAddress (1, 0).GetLocal ();
@@ -279,15 +366,18 @@ LeachManetExample::InstallApplications ()
   
   WsnHelper wsn1 ("ns3::UdpSocketFactory", Address (InetSocketAddress (interfaces.GetAddress (0), port)));
   wsn1.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"));
-  wsn1.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0.0]"));
+  wsn1.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"));
   wsn1.SetAttribute ("PacketDeadlineLen", IntegerValue(3));  // default
   wsn1.SetAttribute ("PacketDeadlineMin", IntegerValue(5));  // default
   
   for (uint32_t clientNode = 1; clientNode <= m_nWifis - 1; clientNode++ )
     {
       ApplicationContainer apps1 = wsn1.Install (nodes.Get (clientNode));
+      Ptr<WsnApplication> wsnapp = DynamicCast<WsnApplication> (apps1.Get (0));
       Ptr<UniformRandomVariable> var = CreateObject<UniformRandomVariable> ();
+      
       apps1.Start (Seconds (var->GetValue (m_dataStart, m_dataStart + 1)));
       apps1.Stop (Seconds (m_totalTime));
+      wsnapp->TraceConnectWithoutContext ("PktCount", MakeCallback (&TotalPackets));
     }
 }

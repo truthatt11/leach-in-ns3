@@ -31,6 +31,7 @@
 #include "ns3/ptr.h"
 #include "ns3/data-rate.h"
 #include "ns3/traced-callback.h"
+#include "ns3/traced-value.h"
 #include "ns3/leach-packet.h"
 
 namespace ns3 {
@@ -166,6 +167,7 @@ private:
   TypeId          m_tid;          //!< Type of the socket used
   int64_t         m_pktDeadlineMin;  //!< Packet Expired Time Min
   int64_t         m_pktDeadlineLen;  //!< Packet Expired Time Len
+  TracedValue<uint32_t>      m_pktCount;     //!< Total packet count
 
   /// Traced Callback: transmitted packets.
   TracedCallback<Ptr<const Packet> > m_txTrace;
