@@ -37,6 +37,7 @@
 #include "ns3/packet.h"
 #include "ns3/uinteger.h"
 #include "ns3/integer.h"
+#include "ns3/double.h"
 #include "ns3/trace-source-accessor.h"
 #include "wsn-application.h"
 #include "ns3/udp-socket-factory.h"
@@ -77,6 +78,7 @@ WsnApplication::GetTypeId (void)
                    AddressValue (),
                    MakeAddressAccessor (&WsnApplication::m_peer),
                    MakeAddressChecker ())
+    /*
     .AddAttribute ("OnTime", "A RandomVariableStream used to pick the duration of the 'On' state.",
                    StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"),
                    MakePointerAccessor (&WsnApplication::m_onTime),
@@ -85,6 +87,11 @@ WsnApplication::GetTypeId (void)
                    StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"),
                    MakePointerAccessor (&WsnApplication::m_offTime),
                    MakePointerChecker <RandomVariableStream>())
+    */
+    .AddAttribute ("PktGenRate", "Packet generation rate",
+                   DoubleValue (1.0),
+                   MakeDoubleAccessor (&WsnApplication::m_pktGenRate),
+                   MakeDoubleChecker <double>())
     .AddAttribute ("MaxBytes", 
                    "The total number of bytes to send. Once these bytes are sent, "
                    "no packet is sent again, even in on state. The value zero means "
@@ -139,15 +146,6 @@ WsnApplication::GetSocket (void) const
   return m_socket;
 }
 
-int64_t 
-WsnApplication::AssignStreams (int64_t stream)
-{
-  NS_LOG_FUNCTION (this << stream);
-  m_onTime->SetStream (stream);
-  m_offTime->SetStream (stream + 1);
-  return 2;
-}
-
 void
 WsnApplication::DoDispose (void)
 {
@@ -191,7 +189,8 @@ void WsnApplication::StartApplication () // Called at time specified by Start
   // If we are not yet connected, there is nothing to do here
   // The ConnectionComplete upcall will start timers at that time
   //if (!m_connected) return;
-  ScheduleStartEvent ();
+//  ScheduleStartEvent ();
+  StartSending();
 }
 
 void WsnApplication::StopApplication () // Called at time specified by Stop
@@ -231,15 +230,6 @@ void WsnApplication::StartSending ()
   NS_LOG_FUNCTION (this);
   m_lastStartTime = Simulator::Now ();
   ScheduleNextTx ();  // Schedule the send packet event
-  ScheduleStopEvent ();
-}
-
-void WsnApplication::StopSending ()
-{
-  NS_LOG_FUNCTION (this);
-  CancelEvents ();
-
-  ScheduleStartEvent ();
 }
 
 // Private helpers
@@ -252,7 +242,7 @@ void WsnApplication::ScheduleNextTx ()
       uint32_t bits = m_pktSize * 8 - m_residualBits;
       NS_LOG_LOGIC ("bits = " << bits);
       Time nextTime (Seconds (bits /
-                              static_cast<double>(m_cbrRate.GetBitRate ()))); // Time till next packet
+                              static_cast<double>(m_cbrRate.GetBitRate ())) + Seconds(1.0/m_pktGenRate)); // Time till next packet
       NS_LOG_LOGIC ("nextTime = " << nextTime);
       m_sendEvent = Simulator::Schedule (nextTime,
                                          &WsnApplication::SendPacket, this);
@@ -263,24 +253,6 @@ void WsnApplication::ScheduleNextTx ()
     }
 }
 
-void WsnApplication::ScheduleStartEvent ()
-{  // Schedules the event to start sending data (switch to the "On" state)
-  NS_LOG_FUNCTION (this);
-
-  Time offInterval = Seconds (m_offTime->GetValue ());
-  NS_LOG_LOGIC ("start at " << offInterval);
-  m_startStopEvent = Simulator::Schedule (offInterval, &WsnApplication::StartSending, this);
-}
-
-void WsnApplication::ScheduleStopEvent ()
-{  // Schedules the event to stop sending data (switch to "Off" state)
-  NS_LOG_FUNCTION (this);
-
-  Time onInterval = Seconds (m_onTime->GetValue ());
-  NS_LOG_LOGIC ("stop at " << onInterval);
-  m_startStopEvent = Simulator::Schedule (onInterval, &WsnApplication::StopSending, this);
-}
-
 void WsnApplication::SendPacket ()
 {
   NS_LOG_FUNCTION (this);
@@ -289,7 +261,7 @@ void WsnApplication::SendPacket ()
   leach::LeachHeader hdr;
   Ptr<Packet> packet = Create<Packet> (m_pktSize - sizeof(hdr));
   Ptr<UniformRandomVariable> m_uniformRandomVariable = CreateObject<UniformRandomVariable> ();
-  int64_t temp = (m_uniformRandomVariable->GetInteger(0, m_pktDeadlineLen) + m_pktDeadlineMin)*1000000000 + Now ().ToInteger(Time::NS);
+  int64_t temp = (m_uniformRandomVariable->GetInteger(0, m_pktDeadlineLen) + m_pktDeadlineMin) + Now ().ToInteger(Time::NS);
   
   m_pktCount++;
   hdr.SetDeadline(Time(temp));

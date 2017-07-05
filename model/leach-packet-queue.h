@@ -36,7 +36,7 @@
 #include "ns3/ipv4-routing-protocol.h"
 #include "ns3/simulator.h"
 #include "ns3/leach-packet.h"
-#include "ns3/udp-header.h"
+//#include "ns3/udp-header.h"
 
 #include <iostream>
 
@@ -51,15 +51,15 @@ class QueueEntry
 public:
   typedef Ipv4RoutingProtocol::UnicastForwardCallback UnicastForwardCallback;
   /// c-tor
-  QueueEntry (Ptr<const Packet> pa = 0, Ipv4Header const & h = Ipv4Header ())
+  QueueEntry (Ptr<Packet> pa = 0, Ipv4Header const & h = Ipv4Header ())
     : m_packet (pa),
       m_header (h)
   {
     if(pa != 0) {
       Packet a (*pa);
+      std::cout << "QueueEntry constructor\n";
+      pa->Print(std::cout);
       LeachHeader hdr;
-      UdpHeader uhdr;
-      a.RemoveHeader(uhdr);
       a.RemoveHeader(hdr);
       m_deadline = hdr.GetDeadline();
     }
@@ -75,15 +75,15 @@ public:
   }
   
   // Fields
-  Ptr<const Packet> GetPacket () const
+  Ptr<Packet> GetPacket () const
   {
     return m_packet;
   }
-  void SetPacket (Ptr<const Packet> p)
+  void SetPacket (Ptr<Packet> p)
   {
     m_packet = p;
   }
-  Ipv4Header GetIpv4Header () const
+    Ipv4Header GetIpv4Header () const
   {
     return m_header;
   }
@@ -102,7 +102,7 @@ public:
 
 private:
   /// Data packet
-  Ptr<const Packet> m_packet;
+  Ptr<Packet> m_packet;
   /// IP header
   Ipv4Header m_header;
   /// Deadline
@@ -129,7 +129,7 @@ public:
   /// Return first found (the earliest) entry for given destination
   bool Dequeue (Ipv4Address dst, QueueEntry & entry);
   /// Remove all packets with destination IP address dst
-  void DropPacketWithDst (Ipv4Address dst);
+//  void DropPacketWithDst (Ipv4Address dst);
   /// Finds whether a packet with destination dst exists in the queue
   bool Find (Ipv4Address dst);
   /// Drop the idx-th entry
@@ -164,7 +164,7 @@ public:
 private:
   std::vector<QueueEntry> m_queue;
   /// Notify that packet is dropped from queue by timeout
-  void Drop (QueueEntry en, std::string reason);
+//  void Drop (QueueEntry en, std::string reason);
   /// The maximum number of packets that we allow a routing protocol to buffer.
   uint32_t m_maxLen;
   /// The maximum period of time that a routing protocol is allowed to buffer a packet for, seconds.

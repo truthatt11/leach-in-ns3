@@ -117,15 +117,6 @@ public:
    */
   Ptr<Socket> GetSocket (void) const;
 
- /**
-  * \brief Assign a fixed random variable stream number to the random variables
-  * used by this model.
-  *
-  * \param stream first stream index to use
-  * \return the number of stream indices assigned by this model
-  */
-  int64_t AssignStreams (int64_t stream);
-
 protected:
   virtual void DoDispose (void);
 private:
@@ -145,10 +136,6 @@ private:
    */
   void StartSending ();
   /**
-   * \brief Start an Off period
-   */
-  void StopSending ();
-  /**
    * \brief Send a packet
    */
   void SendPacket ();
@@ -156,8 +143,6 @@ private:
   Ptr<Socket>     m_socket;       //!< Associated socket
   Address         m_peer;         //!< Peer address
   bool            m_connected;    //!< True if connected
-  Ptr<RandomVariableStream>  m_onTime;       //!< rng for On Time
-  Ptr<RandomVariableStream>  m_offTime;      //!< rng for Off Time
   DataRate        m_cbrRate;      //!< Rate that data is generated
   DataRate        m_cbrRateFailSafe;      //!< Rate that data is generated (check copy)
   uint32_t        m_pktSize;      //!< Size of packets
@@ -170,6 +155,7 @@ private:
   TypeId          m_tid;          //!< Type of the socket used
   int64_t         m_pktDeadlineMin;  //!< Packet Expired Time Min
   int64_t         m_pktDeadlineLen;  //!< Packet Expired Time Len
+  double          m_pktGenRate;   //!< Packet generation rate
 
   TracedValue<uint32_t>      m_pktCount;     //!< Total packet count
 
@@ -181,14 +167,6 @@ private:
    * \brief Schedule the next packet transmission
    */
   void ScheduleNextTx ();
-  /**
-   * \brief Schedule the next On period start
-   */
-  void ScheduleStartEvent ();
-  /**
-   * \brief Schedule the next Off period start
-   */
-  void ScheduleStopEvent ();
   /**
    * \brief Handle a Connection Succeed event
    * \param socket the connected socket

@@ -40,6 +40,7 @@
 #include "ns3/double.h"
 #include "ns3/uinteger.h"
 #include "ns3/vector.h"
+#include "ns3/udp-header.h"
 
 #include <iostream>
 
@@ -100,7 +101,9 @@ RoutingProtocol::AssignStreams (int64_t stream)
 }
 
 RoutingProtocol::RoutingProtocol ()
-  : m_routingTable (),
+  : Round(0),
+    m_dropped (0),
+    m_routingTable (),
     m_bestRoute(),
     m_queue (),
     m_periodicUpdateTimer (Timer::CANCEL_ON_DESTROY),
@@ -108,7 +111,6 @@ RoutingProtocol::RoutingProtocol ()
     m_respondToClusterHeadTimer (Timer::CANCEL_ON_DESTROY)
 {
   m_uniformRandomVariable = CreateObject<UniformRandomVariable> ();
-  Round = 0;
 }
 
 RoutingProtocol::~RoutingProtocol ()
@@ -177,8 +179,6 @@ RoutingProtocol::RouteOutput (Ptr<Packet> p,
       Ptr<Ipv4Route> route;
       return route;
     }
-  OutputStreamWrapper temp = OutputStreamWrapper(&std::cout);
-  
   sockerr = Socket::ERROR_NOTERROR;
   Ptr<Ipv4Route> route;
 
@@ -196,11 +196,6 @@ RoutingProtocol::RouteOutput (Ptr<Packet> p,
 #endif
       if (m_routingTable.LookupRoute (dst,rt))
         {
-          // m_routingTable.Print(&temp);
-          // RouteOutput only concerns a single packet
-          // The packet that triggers RouteOutput
-          // How to aggregate and send?
-          // SendPacketFromQueue?
           return rt.GetRoute();
         }
 #ifdef DA
@@ -216,6 +211,9 @@ RoutingProtocol::LoopbackRoute (const Ipv4Header & hdr, Ptr<NetDevice> oif) cons
   NS_ASSERT (m_lo != 0);
   Ptr<Ipv4Route> rt = Create<Ipv4Route> ();
   rt->SetDestination (hdr.GetDestination ());
+  
+//  NS_LOG_DEBUG("");
+  
   // rt->SetSource (hdr.GetSource ());
   //
   // Source address selection here is tricky.  The loopback route is
@@ -294,9 +292,37 @@ RoutingProtocol::RouteInput (Ptr<const Packet> p,
   if (idev == m_lo)
     {
 #ifdef DA
-      EnqueuePacket (p,header);
-#endif
+      Ptr<Packet> pa = new Packet(*p);
+      EnqueuePacket (pa,header);
+      return false;
+#else
+      RoutingTableEntry toDst;
+      NS_LOG_DEBUG("Deferred: " << dst);
+      if (m_routingTable.LookupRoute (dst,toDst))
+        {
+          Ptr<OutputStreamWrapper> temp = new OutputStreamWrapper(&std::cout);
+          toDst.Print(temp);
+          if(toDst.GetNextHop() == dst)
+            {
+              Ptr<Ipv4Route> route = toDst.GetRoute ();
+//              header.SetSource (route->GetSource ());
+              NS_LOG_DEBUG("Deferred next-hop");
+              ucb(route, p ,header);
+            }
+          else
+            {
+              RoutingTableEntry ne;
+              if (m_routingTable.LookupRoute (toDst.GetNextHop (),ne))
+                {
+                  Ptr<Ipv4Route> route = ne.GetRoute ();
+                  NS_LOG_DEBUG("Deferred forwarding");
+//                  header.SetSource (route->GetSource ());
+                  ucb(route, p ,header);
+                }
+            }
+        }
       return true;
+#endif
     }
   for (std::map<Ptr<Socket>, Ipv4InterfaceAddress>::const_iterator j =
          m_socketAddresses.begin (); j != m_socketAddresses.end (); ++j)
@@ -384,9 +410,15 @@ RoutingProtocol::RouteInput (Ptr<const Packet> p,
                                       << " to " << dst
                                       << " from " << header.GetSource ()
                                       << " via nexthop neighbor " << toDst.GetNextHop ());
-//          EnqueuePacket(p, header);
+
+#ifdef DA
+          Ptr<Packet> pa = new Packet(*p);
+          EnqueuePacket(pa, header);
+          return false;
+#else
           ucb (route,p,header);
           return true;
+#endif
         }
     }
   NS_LOG_LOGIC ("Drop packet " << p->GetUid ()
@@ -411,6 +443,7 @@ RoutingProtocol::RecvLeach (Ptr<Socket> socket)
   // if itself is CH, pass this phase
   packet->RemoveHeader(leachHeader);
   
+  if(isSink) return;
   if(leachHeader.GetAddress() == Ipv4Address("255.255.255.255")) {
     // Need to update a new route
     RoutingTableEntry newEntry (
@@ -496,10 +529,13 @@ RoutingProtocol::PeriodicUpdate ()
   
   NS_LOG_DEBUG("PeriodicUpdate!!  " << m_position);
   NS_LOG_DEBUG("prob = " << prob << ", t = " << t);
-  
+
   m_routingTable.DeleteRoute(m_targetAddress);
   m_routingTable.DeleteRoute(m_sinkAddress);
-  
+/*
+  OutputStreamWrapper temp = OutputStreamWrapper(&std::cout);
+  m_routingTable.Print(&temp);
+*/
   if(Round%20 == 0) valid = 1;
   Round++;
   m_dist = 1e100;
@@ -700,17 +736,52 @@ RoutingProtocol::Drop (Ptr<const Packet> packet,
 }
 
 void
-RoutingProtocol::EnqueuePacket (Ptr<const Packet> p,
+RoutingProtocol::EnqueuePacket (Ptr<Packet> p,
                                 const Ipv4Header & header)
 {
   NS_LOG_FUNCTION (this << ", " << p << ", " << header);
   NS_ASSERT (p != 0 && p != Ptr<Packet> ());
-  QueueEntry newEntry (p,header);
-  bool result = m_queue.Enqueue (newEntry);
-  if (result)
+  
+  Ptr<Packet> out;
+  UdpHeader uhdr;
+  p->RemoveHeader(uhdr);
+  std::cout << " ------------Start-----------\n";
+  p->Print(std::cout);
+  std::cout << " ------------End------------\n";
+  
+  while(DeAggregate(p, out))
     {
-      NS_LOG_DEBUG ("Added packet " << p->GetUid () << " to queue.");
+      QueueEntry newEntry (out,header);
+      bool result = m_queue.Enqueue (newEntry);
+      if (result)
+        {
+          NS_LOG_DEBUG ("Added packet " << p->GetUid () << " to queue.");
+        }
     }
+}
+
+uint32_t
+RoutingProtocol::GetDropped() const
+{
+  return m_dropped;
+}
+  
+  
+bool
+RoutingProtocol::DeAggregate (Ptr<Packet> in, Ptr<Packet>& out)
+{
+  if(in->GetSize() >= 56)
+    {
+      LeachHeader leachHeader;
+      in->RemoveHeader(leachHeader);
+      in->RemoveAtStart(16);
+      
+      out = new Packet(16);
+      out->AddHeader(leachHeader);
+//      NS_LOG_DEBUG("de-aggregated size: " << out->GetSize());
+      return true;
+    }
+  return false;
 }
 
 bool
@@ -727,34 +798,41 @@ RoutingProtocol::DataAggregation (Ptr<Packet> p)
   // pick up those selected entry and send
   int reward = 0, expected = 0;
   LeachHeader hdr;
-  Time now = Now();
+  Time deadLine = Now();
+  
+  deadLine += Seconds(0.064);
+  if(!cluster_head_this_round)
+    deadLine += Seconds(0.064)+Seconds(0.25);
   
   for(uint32_t i=0; i<m_queue.GetSize(); i++) {
-    if(m_queue[i].GetDeadline() > now) {
+    if(m_queue[i].GetDeadline() > deadLine) {
       reward++;
       // Next send opportunity, related to #packets/sec
-      if(m_queue[i].GetDeadline() > now + Seconds(5)) expected++;
+      if(m_queue[i].GetDeadline() > deadLine + Seconds(0.25)) expected++;
     }
     else {
       // drop it
       m_queue.Drop (i);
+      m_dropped++;
     }
   }
-  if(valid) {
-    expected += 1/(1-0.1*(Round%10));
+  if(cluster_head_this_round) {
+    expected += 1+m_clusterMember.size();
   }
   else {
     expected += 1;
   }
   
-  NS_LOG_DEBUG("reward = " << reward << ", expected = " << expected);
-  if(reward > expected) {
+  if(reward > expected || Now() > Seconds(49)) {
     // merge data
     QueueEntry temp;
     while(m_queue.Dequeue(m_sinkAddress, temp)) {
       p->AddAtEnd(temp.GetPacket());
     }
     NS_LOG_FUNCTION("Packet aggregation size: " << p->GetSize());
+    
+    if(Now() > Seconds(49.8)) std::cout << "Queue size left: " << m_queue.GetSize() << "\n";
+    
     return true;
   }
   

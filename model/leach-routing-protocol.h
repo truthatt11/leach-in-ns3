@@ -80,6 +80,7 @@ public:
   // Methods to handle protocol parameters
   void SetPosition (Vector f);
   Vector GetPosition () const;
+  uint32_t GetDropped() const;
 
  /**
   * Assign a fixed random variable stream number to the random variables
@@ -101,6 +102,7 @@ private:
   uint32_t valid;
   uint32_t cluster_head_this_round;
   uint32_t isSink;
+  uint32_t m_dropped;
 
   /// PeriodicUpdateInterval specifies the periodic time interval between which the a node broadcasts
   /// its entire routing table.
@@ -143,18 +145,14 @@ private:
   Start ();
   /// Queue packet until we find a route
   void
-  EnqueuePacket (Ptr<const Packet> p, const Ipv4Header & header);
+  EnqueuePacket (Ptr<Packet> p, const Ipv4Header & header);
   /// Decide whether to send the packets in the buffer
   bool
   DataAggregation (Ptr<Packet> p);
-  /**
-   * Send packet from queue
-   * \param dst - destination address to which we are sending the packet to
-   * \param route - route identified for this packet
-   */
-//  void
-//  SendPacketFromQueue (Ipv4Address dst, Ptr<Ipv4Route> route);
-
+  /// De-aggregate chunk of data
+  bool
+  DeAggregate (Ptr<Packet> in, Ptr<Packet>& out);
+  
   /// Find socket with local interface address iface
   Ptr<Socket>
   FindSocketWithInterfaceAddress (Ipv4InterfaceAddress iface) const;

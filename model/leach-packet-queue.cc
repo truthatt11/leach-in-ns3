@@ -82,7 +82,7 @@ PacketQueue::Drop (uint32_t idx)
 {
   m_queue.erase(m_queue.begin()+idx);
 }
-
+/*
 void
 PacketQueue::DropPacketWithDst (Ipv4Address dst)
 {
@@ -98,7 +98,7 @@ PacketQueue::DropPacketWithDst (Ipv4Address dst)
   m_queue.erase (std::remove_if (m_queue.begin (), m_queue.end (),
                                  std::bind2nd (std::ptr_fun (PacketQueue::IsEqual), dst)), m_queue.end ());
 }
-
+*/
 bool
 PacketQueue::Dequeue (Ipv4Address dst, QueueEntry & entry)
 {
@@ -144,13 +144,14 @@ PacketQueue::GetCountForPacketsWithDst (Ipv4Address dst)
     }
   return count;
 }
-
+/*
 void
 PacketQueue::Drop (QueueEntry en, std::string reason)
 {
   NS_LOG_LOGIC (reason << en.GetPacket ()->GetUid () << " " << en.GetIpv4Header ().GetDestination ());
   return;
 }
+*/
 
 }
 }

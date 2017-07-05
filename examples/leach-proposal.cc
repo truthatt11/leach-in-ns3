@@ -99,6 +99,7 @@ private:
   double m_dataStart;
   uint32_t bytesTotal;
   uint32_t packetsReceived;
+  uint32_t packetsReceivedYetExpired;
   uint32_t packetsDecompressed;
   Vector positions[105];
 
@@ -130,7 +131,7 @@ int main (int argc, char **argv)
   std::string rate ("8kbps");
   std::string phyMode ("DsssRate11Mbps");
   uint32_t periodicUpdateInterval = 15;
-  double dataStart = 20.0;
+  double dataStart = 0.0;
 
   CommandLine cmd;
   cmd.AddValue ("nWifis", "Number of WiFi nodes[Default:30]", nWifis);
@@ -158,6 +159,7 @@ int main (int argc, char **argv)
 LeachProposal::LeachProposal ()
   : bytesTotal (0),
     packetsReceived (0),
+    packetsReceivedYetExpired (0),
     packetsDecompressed (0)
 {
 }
@@ -166,27 +168,33 @@ void
 LeachProposal::ReceivePacket (Ptr <Socket> socket)
 {
   NS_LOG_UNCOND (Simulator::Now ().GetSeconds () << " Received one packet!");
+  
   Ptr <Packet> packet;
+  uint32_t packetSize = 0;
+  uint32_t packetCount = 0;
   
   while ((packet = socket->Recv ()))
     {
       leach::LeachHeader leachHeader;
-      UdpHeader udpHeader;
       
       bytesTotal += packet->GetSize();
-      packet->RemoveHeader(leachHeader);
-      if(leachHeader.GetDeadline() > Simulator::Now()) packetsDecompressed++;
-      packet->RemoveAtStart(16);
+      packetSize += packet->GetSize();
+      NS_LOG_UNCOND("packet size: " << packet->GetSize());
+//      packet->Print(std::cout);
 
-      while(packet->GetSize()>0) {
-        packet->RemoveHeader(udpHeader);
+      while(packet->GetSize() >= 56) {
         packet->RemoveHeader(leachHeader);
         packet->RemoveAtStart(16);
+//        NS_LOG_UNCOND(leachHeader);
         
         if(leachHeader.GetDeadline() > Simulator::Now()) packetsDecompressed++;
+        else packetsReceivedYetExpired++;
+        packetCount++;
       }
       packetsReceived++;
     }
+  NS_LOG_DEBUG("packet size = " << packetSize << ", packetCount = " << packetCount);
+  NS_LOG_DEBUG("packet size/packet count = " << packetSize/(double)packetCount);
 }
 
 Ptr <Socket>
@@ -196,8 +204,6 @@ LeachProposal::SetupPacketReceive (Ipv4Address addr, Ptr <Node> node)
   TypeId tid = TypeId::LookupByName ("ns3::UdpSocketFactory");
   Ptr <Socket> sink = Socket::CreateSocket (node, tid);
   InetSocketAddress local = InetSocketAddress (addr, port);
-  
-  NS_LOG_INFO(addr);
   
   sink->Bind (local);
   sink->SetRecvCallback (MakeCallback ( &LeachProposal::ReceivePacket, this));
@@ -226,7 +232,6 @@ LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std:
   std::string sTotalTime = ss3.str ();
 
   std::string tr_name = "Leach_Manet_" + t_nodes + "Nodes_" + sTotalTime + "SimTime";
-//  std::cout << "Trace file generated is " << tr_name << ".tr\n";
 
   CreateNodes ();
   CreateDevices ();
@@ -237,21 +242,26 @@ LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std:
 
   std::cout << "\nStarting simulation for " << m_totalTime << " s ...\n";
 
-//  CheckThroughput ();
-
   Simulator::Stop (Seconds (m_totalTime));
   Simulator::Run ();
 
+  double avgIdle = 0.0, avgTx = 0.0, avgRx = 0.0;
+  uint32_t dropped = 0;
+  
   NS_LOG_UNCOND ("Total bytes received: " << bytesTotal);
-  NS_LOG_UNCOND ("Total packets received/decompressed/generated: " << packetsReceived << "/" << packetsDecompressed << "/" << packetsGenerated);
+  NS_LOG_UNCOND ("Total packets received/decompressed/received yet expired/generated: " << packetsReceived << "/" << packetsDecompressed << "/" << packetsReceivedYetExpired << "/" << packetsGenerated);
   for (uint32_t i=0; i<m_nWifis; i++)
     {
       Ptr<BasicEnergySource> basicSourcePtr = DynamicCast<BasicEnergySource> (sources.Get (i));
       Ptr<DeviceEnergyModel> basicRadioModelPtr = basicSourcePtr->FindDeviceEnergyModels ("ns3::WifiRadioEnergyModel").Get (0);
       Ptr<WifiRadioEnergyModel> ptr = DynamicCast<WifiRadioEnergyModel> (basicRadioModelPtr);
       NS_ASSERT (basicRadioModelPtr != NULL);
-      NS_LOG_UNCOND("Idle time: " << ptr->GetIdleTime() << ", Tx Time: " << ptr->GetTxTime() << ", Rx Time: " << ptr->GetRxTime());
+      avgIdle += ptr->GetIdleTime().ToDouble(Time::MS);
+      avgTx += ptr->GetTxTime().ToDouble(Time::MS);
+      avgRx += ptr->GetRxTime().ToDouble(Time::MS);
+//      NS_LOG_UNCOND("Idle time: " << ptr->GetIdleTime() << ", Tx Time: " << ptr->GetTxTime() << ", Rx Time: " << ptr->GetRxTime());
     }
+  NS_LOG_UNCOND("Avg Idle time(ms): " << avgIdle/m_nWifis << ", Avg Tx Time(ms): " << avgTx/m_nWifis << ", Avg Rx Time(ms): " << avgRx/m_nWifis);
 
   Simulator::Destroy ();
 }
@@ -271,8 +281,8 @@ LeachProposal::SetupMobility ()
   ObjectFactory pos;
   uint32_t count = 0;
   pos.SetTypeId ("ns3::RandomRectanglePositionAllocator");
-  pos.Set ("X", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=1000.0]"));
-  pos.Set ("Y", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=1000.0]"));
+  pos.Set ("X", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=400.0]"));
+  pos.Set ("Y", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=400.0]"));
 
   Ptr <PositionAllocator> taPositionAlloc = pos.Create ()->GetObject <PositionAllocator> ();
   mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
@@ -365,10 +375,11 @@ LeachProposal::InstallApplications ()
   Ptr<Socket> sink = SetupPacketReceive (nodeAddress, node);
   
   WsnHelper wsn1 ("ns3::UdpSocketFactory", Address (InetSocketAddress (interfaces.GetAddress (0), port)));
-  wsn1.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"));
-  wsn1.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"));
-  wsn1.SetAttribute ("PacketDeadlineLen", IntegerValue(3));  // default
-  wsn1.SetAttribute ("PacketDeadlineMin", IntegerValue(5));  // default
+//  wsn1.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"));
+//  wsn1.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"));
+  wsn1.SetAttribute ("PktGenRate", DoubleValue(4.0));
+  wsn1.SetAttribute ("PacketDeadlineLen", IntegerValue(3000000000));  // default
+  wsn1.SetAttribute ("PacketDeadlineMin", IntegerValue(5000000000));  // default
   
   for (uint32_t clientNode = 1; clientNode <= m_nWifis - 1; clientNode++ )
     {

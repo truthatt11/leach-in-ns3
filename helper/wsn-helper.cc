@@ -76,26 +76,6 @@ WsnHelper::InstallPriv (Ptr<Node> node) const
   return app;
 }
 
-int64_t
-WsnHelper::AssignStreams (NodeContainer c, int64_t stream)
-{
-  int64_t currentStream = stream;
-  Ptr<Node> node;
-  for (NodeContainer::Iterator i = c.Begin (); i != c.End (); ++i)
-    {
-      node = (*i);
-      for (uint32_t j = 0; j < node->GetNApplications (); j++)
-        {
-          Ptr<WsnApplication> wsn = DynamicCast<WsnApplication> (node->GetApplication (j));
-          if (wsn)
-            {
-              currentStream += wsn->AssignStreams (currentStream);
-            }
-        }
-    }
-  return (currentStream - stream);
-}
-
 void 
 WsnHelper::SetConstantRate (DataRate dataRate, uint32_t packetSize)
 {
