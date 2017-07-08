@@ -246,7 +246,6 @@ LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std:
   Simulator::Run ();
 
   double avgIdle = 0.0, avgTx = 0.0, avgRx = 0.0;
-  uint32_t dropped = 0;
   
   NS_LOG_UNCOND ("Total bytes received: " << bytesTotal);
   NS_LOG_UNCOND ("Total packets received/decompressed/received yet expired/generated: " << packetsReceived << "/" << packetsDecompressed << "/" << packetsReceivedYetExpired << "/" << packetsGenerated);

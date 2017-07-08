@@ -57,8 +57,8 @@ public:
   {
     if(pa != 0) {
       Packet a (*pa);
-      std::cout << "QueueEntry constructor\n";
-      pa->Print(std::cout);
+//      std::cout << "QueueEntry constructor\n";
+//      pa->Print(std::cout);
       LeachHeader hdr;
       a.RemoveHeader(hdr);
       m_deadline = hdr.GetDeadline();

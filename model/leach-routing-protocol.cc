@@ -44,8 +44,11 @@
 
 #include <iostream>
 
-
 #define DA
+//#define DA_PROP
+#define DA_OPT
+//#define DA_CL
+//#define DA_SF
 
 
 namespace ns3 {
@@ -59,6 +62,10 @@ NS_OBJECT_ENSURE_REGISTERED (RoutingProtocol);
 /// UDP Port for LEACH control traffic
 const uint32_t RoutingProtocol::LEACH_PORT = 269;
 
+double max(double a, double b) {
+    return (a>b)?a:b;
+}
+  
 TypeId
 RoutingProtocol::GetTypeId (void)
 {
@@ -115,6 +122,7 @@ RoutingProtocol::RoutingProtocol ()
 
 RoutingProtocol::~RoutingProtocol ()
 {
+  NS_LOG_INFO(m_dropped);
 }
 
 void
@@ -745,10 +753,11 @@ RoutingProtocol::EnqueuePacket (Ptr<Packet> p,
   Ptr<Packet> out;
   UdpHeader uhdr;
   p->RemoveHeader(uhdr);
+  /*
   std::cout << " ------------Start-----------\n";
   p->Print(std::cout);
   std::cout << " ------------End------------\n";
-  
+  */
   while(DeAggregate(p, out))
     {
       QueueEntry newEntry (out,header);
@@ -789,53 +798,155 @@ RoutingProtocol::DataAggregation (Ptr<Packet> p)
 {
   // Implement data aggregation policy
   // and data addgregation function
-  
-#ifndef DA
-  return true;
+
+#ifdef DA_PROP
+  return Proposal(p);
+#endif
+#ifdef DA_OPT
+  return OptTM(p);
+#endif
+#ifdef DA_CL
+  return ControlLimit(p);
+#endif
+#ifdef DA_SF
+  return SelectiveForwarding(p);
 #endif
   
+  return true;
+}
+  
+bool
+RoutingProtocol::Proposal (Ptr<Packet> p)
+{
   NS_LOG_FUNCTION (this);
   // pick up those selected entry and send
-  int reward = 0, expected = 0;
+  int expired = 0, expected;
   LeachHeader hdr;
   Time deadLine = Now();
   
-  deadLine += Seconds(0.064);
+  deadLine += Seconds(0.064)+Seconds(0.25);
   if(!cluster_head_this_round)
     deadLine += Seconds(0.064)+Seconds(0.25);
   
   for(uint32_t i=0; i<m_queue.GetSize(); i++) {
-    if(m_queue[i].GetDeadline() > deadLine) {
-      reward++;
-      // Next send opportunity, related to #packets/sec
-      if(m_queue[i].GetDeadline() > deadLine + Seconds(0.25)) expected++;
-    }
-    else {
-      // drop it
-      m_queue.Drop (i);
-      m_dropped++;
+    if(m_queue[i].GetDeadline() < deadLine) {
+      expired++;
+      if(m_queue[i].GetDeadline() < Now()) {
+        // drop it
+        m_queue.Drop (i);
+        m_dropped++;
+      }
     }
   }
   if(cluster_head_this_round) {
-    expected += 1+m_clusterMember.size();
+    expected = 1+m_clusterMember.size();
   }
   else {
-    expected += 1;
+    expected = 1;
   }
   
-  if(reward > expected || Now() > Seconds(49)) {
+  if(expired > expected || Now() > Seconds(49.5)) {
     // merge data
     QueueEntry temp;
     while(m_queue.Dequeue(m_sinkAddress, temp)) {
       p->AddAtEnd(temp.GetPacket());
     }
-    NS_LOG_FUNCTION("Packet aggregation size: " << p->GetSize());
+//    NS_LOG_FUNCTION("Packet aggregation size: " << p->GetSize());
     
     if(Now() > Seconds(49.8)) std::cout << "Queue size left: " << m_queue.GetSize() << "\n";
     
     return true;
   }
+  return false;
+}
+
+bool
+RoutingProtocol::OptTM (Ptr<Packet> p)
+{
+  Time time = Now();
+  uint32_t rewards[100], maxR = 0;
+  uint32_t actions[100];
+  static int step = 0;
   
+  for(int i=0; i<100; i++)
+    {
+      actions[i] = 0;
+      rewards[i] = 0;
+      for(uint j=0; j<m_queue.GetSize(); j++)
+        {
+          if(m_queue[j].GetDeadline() >= time) rewards[i] += m_queue[j].GetDeadline().ToInteger(Time::MS) - time.ToInteger(Time::MS);
+//          std::cout << "test reward[" << i << "] = " << rewards[i] << "\n";
+        }
+      for(int j=1; j<i+step; j++)
+        {
+          rewards[i] += (j<8) ?30000-j*4000 :0;
+        }
+      time += Seconds(0.25);
+    }
+  
+  for(int i=0; i<100; i++)
+    {
+      
+//      std::cout << rewards[i] << ", ";
+      
+      if(rewards[i] > maxR)
+        {
+          maxR = rewards[i];
+        }
+    }
+//  std::cout << "\n";
+  
+  // wait=1, transmit=2
+  for(int i=98; i>=0; i--)
+    {
+      if(rewards[i] < maxR)
+        actions[i] = 1;
+      else
+        {
+          double rb[100], rn[100];
+          rb[99] = 1.0;
+          rn[99] = 0.0;
+
+          for(int k=98; k>i; k--)
+            {
+              rn[k] = max(0.0, i*rn[k+1]/(k+1) + rb[k+1]/(k+1));
+              rb[k] = max(rewards[k], rn[k]);
+              
+//              std::cout << rn[k] << ", " << rb[k] << "\n";
+
+            }
+
+          if(rewards[i] >= (uint32_t)rb[i+1])
+            actions[i] = 2;
+          else
+            actions[i] = 1;
+        }
+    }
+  step++;
+  
+  if(actions[0] > 1 || Now() > Seconds(49.5))
+    {
+      QueueEntry temp;
+      while(m_queue.Dequeue(m_sinkAddress, temp))
+        {
+          p->AddAtEnd(temp.GetPacket());
+        }
+      
+      return true;
+    }
+  
+  return false;
+}
+  
+bool
+RoutingProtocol::ControlLimit (Ptr<Packet> p)
+{
+  return false;
+}
+  
+bool
+RoutingProtocol::SelectiveForwarding (Ptr<Packet> p)
+{
   return false;
 }
 

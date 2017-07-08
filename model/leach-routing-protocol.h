@@ -149,6 +149,15 @@ private:
   /// Decide whether to send the packets in the buffer
   bool
   DataAggregation (Ptr<Packet> p);
+  bool
+  Proposal (Ptr<Packet> p);
+  bool
+  OptTM (Ptr<Packet> p);
+  bool
+  ControlLimit (Ptr<Packet> p);
+  bool
+  SelectiveForwarding (Ptr<Packet> p);
+  
   /// De-aggregate chunk of data
   bool
   DeAggregate (Ptr<Packet> in, Ptr<Packet>& out);
