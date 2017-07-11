@@ -188,6 +188,20 @@ private:
   /// Cluster member tell their cluster head
   void
   RespondToClusterHead ();
+#ifndef DA
+  /// Deal with No DA
+  void
+  EnqueueForNoDA(UnicastForwardCallback ucb, Ptr<Ipv4Route> rt, Ptr<const Packet> p, const Ipv4Header &header);
+  void
+  AutoDequeueNoDA();
+  struct DeferredPack{
+    UnicastForwardCallback ucb;
+    Ptr<Ipv4Route> rt;
+    Ptr<const Packet> p;
+    Ipv4Header header;
+  };
+  std::vector<struct DeferredPack> DeferredQueue;
+#endif
   /// Notify that packet is dropped for some reason
   void
   Drop (Ptr<const Packet>, const Ipv4Header &, Socket::SocketErrno);

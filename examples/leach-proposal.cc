@@ -140,7 +140,7 @@ int main (int argc, char **argv)
   cmd.AddValue ("phyMode", "Wifi Phy mode[Default:DsssRate11Mbps]", phyMode);
   cmd.AddValue ("rate", "CBR traffic rate[Default:8kbps]", rate);
   cmd.AddValue ("periodicUpdateInterval", "Periodic Interval Time[Default=15]", periodicUpdateInterval);
-  cmd.AddValue ("dataStart", "Time at which nodes start to transmit data[Default=20.0]", dataStart);
+  cmd.AddValue ("dataStart", "Time at which nodes start to transmit data[Default=0.0]", dataStart);
   cmd.Parse (argc, argv);
 
   SeedManager::SetSeed (12345);

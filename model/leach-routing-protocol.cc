@@ -43,11 +43,12 @@
 #include "ns3/udp-header.h"
 
 #include <iostream>
+#include <cmath>
 
 #define DA
 //#define DA_PROP
-#define DA_OPT
-//#define DA_CL
+//#define DA_OPT
+#define DA_CL
 //#define DA_SF
 
 
@@ -109,6 +110,7 @@ RoutingProtocol::AssignStreams (int64_t stream)
 
 RoutingProtocol::RoutingProtocol ()
   : Round(0),
+    isSink(0),
     m_dropped (0),
     m_routingTable (),
     m_bestRoute(),
@@ -168,7 +170,7 @@ RoutingProtocol::Start ()
     m_periodicUpdateTimer.SetFunction (&RoutingProtocol::PeriodicUpdate,this);
     m_broadcastClusterHeadTimer.SetFunction (&RoutingProtocol::SendBroadcast,this);
     m_respondToClusterHeadTimer.SetFunction(&RoutingProtocol::RespondToClusterHead, this);
-    m_periodicUpdateTimer.Schedule (MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
+    m_periodicUpdateTimer.Schedule (MicroSeconds (m_uniformRandomVariable->GetInteger (10,1000)));
   }
 }
 
@@ -217,6 +219,7 @@ Ptr<Ipv4Route>
 RoutingProtocol::LoopbackRoute (const Ipv4Header & hdr, Ptr<NetDevice> oif) const
 {
   NS_ASSERT (m_lo != 0);
+  NS_LOG_DEBUG("");
   Ptr<Ipv4Route> rt = Create<Ipv4Route> ();
   rt->SetDestination (hdr.GetDestination ());
   
@@ -299,6 +302,7 @@ RoutingProtocol::RouteInput (Ptr<const Packet> p,
   // Deferred route request
   if (idev == m_lo)
     {
+      NS_LOG_DEBUG("LoopBackRoute");
 #ifdef DA
       Ptr<Packet> pa = new Packet(*p);
       EnqueuePacket (pa,header);
@@ -306,28 +310,25 @@ RoutingProtocol::RouteInput (Ptr<const Packet> p,
 #else
       RoutingTableEntry toDst;
       NS_LOG_DEBUG("Deferred: " << dst);
+      
       if (m_routingTable.LookupRoute (dst,toDst))
         {
-          Ptr<OutputStreamWrapper> temp = new OutputStreamWrapper(&std::cout);
-          toDst.Print(temp);
-          if(toDst.GetNextHop() == dst)
-            {
               Ptr<Ipv4Route> route = toDst.GetRoute ();
-//              header.SetSource (route->GetSource ());
-              NS_LOG_DEBUG("Deferred next-hop");
+              NS_LOG_DEBUG("Deferred forwarding");
+              NS_LOG_DEBUG("Src: " << route->GetSource() << ", Dst: " << toDst.GetDestination() << ", Gateway: " << toDst.GetNextHop());
               ucb(route, p ,header);
-            }
-          else
-            {
-              RoutingTableEntry ne;
-              if (m_routingTable.LookupRoute (toDst.GetNextHop (),ne))
-                {
-                  Ptr<Ipv4Route> route = ne.GetRoute ();
-                  NS_LOG_DEBUG("Deferred forwarding");
-//                  header.SetSource (route->GetSource ());
-                  ucb(route, p ,header);
-                }
-            }
+        }
+      else
+        {
+          NS_LOG_DEBUG("Route not found");
+          
+          Ptr<Ipv4Route> rt = Create<Ipv4Route> ();
+          rt->SetDestination (dst);
+          rt->SetSource (origin);
+          rt->SetGateway (Ipv4Address ("127.0.0.1"));
+          rt->SetOutputDevice (m_lo);
+          
+          EnqueueForNoDA(ucb, rt, p, header);
         }
       return true;
 #endif
@@ -435,6 +436,30 @@ RoutingProtocol::RouteInput (Ptr<const Packet> p,
 }
 
 void
+RoutingProtocol::EnqueueForNoDA(UnicastForwardCallback ucb, Ptr<Ipv4Route> rt, Ptr<const Packet> p, const Ipv4Header &header)
+{
+  struct DeferredPack tmp;
+  tmp.ucb = ucb;
+  tmp.rt = rt;
+  tmp.p = p;
+  tmp.header = header;
+  DeferredQueue.push_back(tmp);
+  
+  Simulator::Schedule (MilliSeconds (100),&RoutingProtocol::AutoDequeueNoDA,this);
+}
+  
+void
+RoutingProtocol::AutoDequeueNoDA()
+{
+  while(DeferredQueue.size())
+    {
+      struct DeferredPack tmp = DeferredQueue.front();
+      tmp.ucb(tmp.rt, tmp.p, tmp.header);
+      DeferredQueue.erase(DeferredQueue.begin());
+    }
+}
+  
+void
 RoutingProtocol::RecvLeach (Ptr<Socket> socket)
 {
   Address sourceAddress;
@@ -451,19 +476,26 @@ RoutingProtocol::RecvLeach (Ptr<Socket> socket)
   // if itself is CH, pass this phase
   packet->RemoveHeader(leachHeader);
   
+  /*
+  NS_LOG_DEBUG(leachHeader.GetAddress());
+  NS_LOG_DEBUG(isSink);
+  NS_LOG_DEBUG(m_mainAddress);
+  */
+  
   if(isSink) return;
   if(leachHeader.GetAddress() == Ipv4Address("255.255.255.255")) {
+      NS_LOG_DEBUG("Recv broadcast from CH: " << sender);
     // Need to update a new route
     RoutingTableEntry newEntry (
       /*device=*/ socket->GetBoundNetDevice(), /*dst (sink)*/m_sinkAddress,
       /*iface=*/ m_ipv4->GetAddress (m_ipv4->GetInterfaceForAddress (receiver), 0),
       /*next hop=*/ sender);
-    newEntry.SetFlag (VALID);
     
     senderPosition = leachHeader.GetPosition();
     dx = senderPosition.x - m_position.x;
     dy = senderPosition.y - m_position.y;
     dist = dx*dx + dy*dy;
+    NS_LOG_DEBUG("dist = " << dist << ", m_dist = " << m_dist);
     
     if(dist < m_dist) {
       m_dist = dist;
@@ -485,6 +517,7 @@ RoutingProtocol::RespondToClusterHead()
   LeachHeader leachHeader;
   Ipv4Address ipv4;
   OutputStreamWrapper temp = OutputStreamWrapper(&std::cout);
+
   
   // Add routing to routingTable
   if(m_targetAddress != ipv4) {
@@ -499,7 +532,7 @@ RoutingProtocol::RespondToClusterHead()
     if(newEntry.GetInterface().GetLocal() != ipv4) m_routingTable.AddRoute (newEntry);
 
 //    m_routingTable.Print(&temp);
-
+      
     leachHeader.SetAddress(m_mainAddress);
     packet->AddHeader (leachHeader);
     socket->SendTo (packet, 0, InetSocketAddress (m_targetAddress, LEACH_PORT));
@@ -535,8 +568,8 @@ RoutingProtocol::PeriodicUpdate ()
   double p = 1.0/n;
   double t = p/(1-p*(Round%n));
   
-  NS_LOG_DEBUG("PeriodicUpdate!!  " << m_position);
-  NS_LOG_DEBUG("prob = " << prob << ", t = " << t);
+  NS_LOG_DEBUG("PeriodicUpdate!!");
+//  NS_LOG_DEBUG("prob = " << prob << ", t = " << t);
 
   m_routingTable.DeleteRoute(m_targetAddress);
   m_routingTable.DeleteRoute(m_sinkAddress);
@@ -555,12 +588,13 @@ RoutingProtocol::PeriodicUpdate ()
   if(prob < t && valid) {
     // become cluster head
     // broadcast info
+    NS_LOG_DEBUG(m_mainAddress << " becomes cluster head");
     valid = 0;
     cluster_head_this_round = 1;
     m_targetAddress = m_sinkAddress;
-    m_broadcastClusterHeadTimer.Schedule (MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
+    m_broadcastClusterHeadTimer.Schedule (MicroSeconds (m_uniformRandomVariable->GetInteger (10000,50000)));
   }else {
-    m_respondToClusterHeadTimer.Schedule (Seconds(1) + MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
+    m_respondToClusterHeadTimer.Schedule (MilliSeconds(100) + MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
   }
   m_periodicUpdateTimer.Schedule (m_periodicUpdateInterval + MicroSeconds (m_uniformRandomVariable->GetInteger (0,1000)));
 }
@@ -774,8 +808,7 @@ RoutingProtocol::GetDropped() const
 {
   return m_dropped;
 }
-  
-  
+
 bool
 RoutingProtocol::DeAggregate (Ptr<Packet> in, Ptr<Packet>& out)
 {
@@ -941,6 +974,21 @@ RoutingProtocol::OptTM (Ptr<Packet> p)
 bool
 RoutingProtocol::ControlLimit (Ptr<Packet> p)
 {
+  static uint32_t threshold = (1/(log(1/0.1)*(log(1/0.1)+0.25)))+2;
+  for(uint32_t i=0; i<m_queue.GetSize(); i++)
+    {
+      if(m_queue[i].GetDeadline() < Now())
+        m_queue.Drop(i);
+    }
+    
+  if(m_queue.GetSize() >= threshold)
+    {
+      QueueEntry temp;
+      while(m_queue.Dequeue(m_sinkAddress, temp)) {
+        p->AddAtEnd(temp.GetPacket());
+      }
+      return true;
+    }
   return false;
 }
   
