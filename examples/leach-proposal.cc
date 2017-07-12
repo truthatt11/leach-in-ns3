@@ -35,6 +35,7 @@
 #include "ns3/config-store-module.h"
 #include "ns3/internet-module.h"
 #include "ns3/leach-helper.h"
+#include "ns3/leach-routing-protocol.h"
 #include "ns3/wsn-helper.h"
 #include "ns3/wifi-module.h"
 #include "ns3/energy-module.h"
@@ -49,6 +50,7 @@ using namespace ns3;
 
 uint16_t port = 9;
 uint32_t packetsGenerated = 0;
+uint32_t packetsDropped = 0;
 
 NS_LOG_COMPONENT_DEFINE ("LeachProposal");
 
@@ -76,6 +78,13 @@ TotalPackets (uint32_t oldValue, uint32_t newValue)
   packetsGenerated += (newValue - oldValue);
 }
 
+/// dropped packets from LeachRoutingProtocol
+void
+CountDroppedPkt (uint32_t oldValue, uint32_t newValue)
+{
+  packetsDropped += (newValue - oldValue);
+}
+
 
 class LeachProposal
 {
@@ -87,7 +96,8 @@ public:
                 std::string rate,
                 std::string phyMode,
                 uint32_t periodicUpdateInterval,
-                double dataStart);
+                double dataStart,
+                double lambda);
 
 private:
   uint32_t m_nWifis;
@@ -102,11 +112,11 @@ private:
   uint32_t packetsReceivedYetExpired;
   uint32_t packetsDecompressed;
   Vector positions[105];
-
+  double m_lambda;
+  
   NodeContainer nodes;
   NetDeviceContainer devices;
   Ipv4InterfaceContainer interfaces;
-  
   EnergySourceContainer sources;
 
 private:
@@ -127,11 +137,11 @@ int main (int argc, char **argv)
   uint32_t nWifis = 30;
   uint32_t nSinks = 1;
   double totalTime = 50.0;
-//  double totalTime = 20.0;
   std::string rate ("8kbps");
   std::string phyMode ("DsssRate11Mbps");
-  uint32_t periodicUpdateInterval = 15;
+  uint32_t periodicUpdateInterval = 5;
   double dataStart = 0.0;
+  double lambda = 4.0;
 
   CommandLine cmd;
   cmd.AddValue ("nWifis", "Number of WiFi nodes[Default:30]", nWifis);
@@ -151,7 +161,7 @@ int main (int argc, char **argv)
   Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold", StringValue ("2000"));
 
   test = LeachProposal ();
-  test.CaseRun (nWifis, nSinks, totalTime, rate, phyMode, periodicUpdateInterval, dataStart);
+  test.CaseRun (nWifis, nSinks, totalTime, rate, phyMode, periodicUpdateInterval, dataStart, lambda);
   
   return 0;
 }
@@ -167,11 +177,11 @@ LeachProposal::LeachProposal ()
 void
 LeachProposal::ReceivePacket (Ptr <Socket> socket)
 {
-  NS_LOG_UNCOND (Simulator::Now ().GetSeconds () << " Received one packet!");
-  
   Ptr <Packet> packet;
   uint32_t packetSize = 0;
   uint32_t packetCount = 0;
+  
+  NS_LOG_UNCOND (Simulator::Now ().GetSeconds () << " Received one packet!"/*  Uid: " << packet->GetUid()*/);
   
   while ((packet = socket->Recv ()))
     {
@@ -213,7 +223,7 @@ LeachProposal::SetupPacketReceive (Ipv4Address addr, Ptr <Node> node)
 
 void
 LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std::string rate,
-                           std::string phyMode, uint32_t periodicUpdateInterval, double dataStart)
+                           std::string phyMode, uint32_t periodicUpdateInterval, double dataStart, double lambda)
 {
   m_nWifis = nWifis;
   m_nSinks = nSinks;
@@ -222,6 +232,7 @@ LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std:
   m_phyMode = phyMode;
   m_periodicUpdateInterval = periodicUpdateInterval;
   m_dataStart = dataStart;
+  m_lambda = lambda;
 
   std::stringstream ss;
   ss << m_nWifis;
@@ -248,7 +259,8 @@ LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std:
   double avgIdle = 0.0, avgTx = 0.0, avgRx = 0.0;
   
   NS_LOG_UNCOND ("Total bytes received: " << bytesTotal);
-  NS_LOG_UNCOND ("Total packets received/decompressed/received yet expired/generated: " << packetsReceived << "/" << packetsDecompressed << "/" << packetsReceivedYetExpired << "/" << packetsGenerated);
+  NS_LOG_UNCOND ("Total packets received/decompressed/received yet expired/dropped/generated: " << packetsReceived << "/" << packetsDecompressed
+                 << "/" << packetsReceivedYetExpired << "/" << packetsDropped << "/" << packetsGenerated);
   for (uint32_t i=0; i<m_nWifis; i++)
     {
       Ptr<BasicEnergySource> basicSourcePtr = DynamicCast<BasicEnergySource> (sources.Get (i));
@@ -350,6 +362,7 @@ void
 LeachProposal::InstallInternetStack (std::string tr_name)
 {
   LeachHelper leach;
+  leach.Set ("Lambda", DoubleValue (m_lambda));
   leach.Set ("PeriodicUpdateInterval", TimeValue (Seconds (m_periodicUpdateInterval)));
   InternetStackHelper stack;
   uint32_t count = 0;
@@ -359,6 +372,8 @@ LeachProposal::InstallInternetStack (std::string tr_name)
       leach.Set("Position", Vector3DValue(positions[count++]));
       stack.SetRoutingHelper (leach); // has effect on the next Install ()
       stack.Install (*i);
+      Ptr<leach::RoutingProtocol> leachTracer = DynamicCast<leach::RoutingProtocol> ((*i)->GetObject<Ipv4> ()->GetRoutingProtocol());
+      leachTracer->TraceConnectWithoutContext ("DroppedCount", MakeCallback (&CountDroppedPkt));
     }
   //stack.Install (nodes);        // should give change to leach protocol on the position property
   Ipv4AddressHelper address;
@@ -374,9 +389,8 @@ LeachProposal::InstallApplications ()
   Ptr<Socket> sink = SetupPacketReceive (nodeAddress, node);
   
   WsnHelper wsn1 ("ns3::UdpSocketFactory", Address (InetSocketAddress (interfaces.GetAddress (0), port)));
-//  wsn1.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"));
-//  wsn1.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"));
-  wsn1.SetAttribute ("PktGenRate", DoubleValue(4.0));
+  wsn1.SetAttribute ("PktGenRate", DoubleValue(m_lambda));
+  wsn1.SetAttribute ("PktGenPattern", IntegerValue(1));
   wsn1.SetAttribute ("PacketDeadlineLen", IntegerValue(3000000000));  // default
   wsn1.SetAttribute ("PacketDeadlineMin", IntegerValue(5000000000));  // default
   

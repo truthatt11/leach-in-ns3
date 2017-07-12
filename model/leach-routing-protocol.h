@@ -43,6 +43,9 @@
 #include "ns3/ipv4-l3-protocol.h"
 #include "ns3/output-stream-wrapper.h"
 #include "ns3/vector.h"
+#include "ns3/traced-value.h"
+
+
 #include <vector>
 
 namespace ns3 {
@@ -80,7 +83,6 @@ public:
   // Methods to handle protocol parameters
   void SetPosition (Vector f);
   Vector GetPosition () const;
-  uint32_t GetDropped() const;
 
  /**
   * Assign a fixed random variable stream number to the random variables
@@ -102,7 +104,8 @@ private:
   uint32_t valid;
   uint32_t cluster_head_this_round;
   uint32_t isSink;
-  uint32_t m_dropped;
+  TracedValue<uint32_t> m_dropped;
+  double   m_lambda;
 
   /// PeriodicUpdateInterval specifies the periodic time interval between which the a node broadcasts
   /// its entire routing table.

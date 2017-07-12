@@ -46,9 +46,9 @@
 #include <cmath>
 
 #define DA
-//#define DA_PROP
+#define DA_PROP
 //#define DA_OPT
-#define DA_CL
+//#define DA_CL
 //#define DA_SF
 
 
@@ -85,7 +85,15 @@ RoutingProtocol::GetTypeId (void)
     .AddAttribute ("Position", "X and Y position of the node",
                    Vector3DValue (),
                    MakeVectorAccessor (&RoutingProtocol::m_position),
-                   MakeVectorChecker ());
+                   MakeVectorChecker ())
+    .AddAttribute ("Lambda", "Average Packet generation rate",
+                   DoubleValue (1.0),
+                   MakeDoubleAccessor (&RoutingProtocol::m_lambda),
+                   MakeDoubleChecker <double>())
+    .AddTraceSource ("DroppedCount", "Total packets dropped",
+                   MakeTraceSourceAccessor (&RoutingProtocol::m_dropped),
+                   "ns3::TracedValueCallback::Uint32")
+    ;
   return tid;
 }
 
@@ -112,6 +120,7 @@ RoutingProtocol::RoutingProtocol ()
   : Round(0),
     isSink(0),
     m_dropped (0),
+    m_lambda (4.0),
     m_routingTable (),
     m_bestRoute(),
     m_queue (),
@@ -564,6 +573,7 @@ void
 RoutingProtocol::PeriodicUpdate ()
 {
   double prob = m_uniformRandomVariable->GetValue (0,1);
+  // 10 round a cycle, 30/10=3 cluster heads per round
   int n = 10;
   double p = 1.0/n;
   double t = p/(1-p*(Round%n));
@@ -803,12 +813,6 @@ RoutingProtocol::EnqueuePacket (Ptr<Packet> p,
     }
 }
 
-uint32_t
-RoutingProtocol::GetDropped() const
-{
-  return m_dropped;
-}
-
 bool
 RoutingProtocol::DeAggregate (Ptr<Packet> in, Ptr<Packet>& out)
 {
@@ -857,9 +861,9 @@ RoutingProtocol::Proposal (Ptr<Packet> p)
   LeachHeader hdr;
   Time deadLine = Now();
   
-  deadLine += Seconds(0.064)+Seconds(0.25);
+  deadLine += Seconds(0.064)+Seconds(1/m_lambda);
   if(!cluster_head_this_round)
-    deadLine += Seconds(0.064)+Seconds(0.25);
+    deadLine += Seconds(0.064)+Seconds(1/m_lambda);
   
   for(uint32_t i=0; i<m_queue.GetSize(); i++) {
     if(m_queue[i].GetDeadline() < deadLine) {
@@ -914,7 +918,7 @@ RoutingProtocol::OptTM (Ptr<Packet> p)
         {
           rewards[i] += (j<8) ?30000-j*4000 :0;
         }
-      time += Seconds(0.25);
+      time += Seconds(1/m_lambda);
     }
   
   for(int i=0; i<100; i++)
@@ -974,11 +978,14 @@ RoutingProtocol::OptTM (Ptr<Packet> p)
 bool
 RoutingProtocol::ControlLimit (Ptr<Packet> p)
 {
-  static uint32_t threshold = (1/(log(1/0.1)*(log(1/0.1)+0.25)))+2;
+  static uint32_t threshold = (1/(log(1/0.1)*(log(1/0.1)+m_lambda)))+2;
   for(uint32_t i=0; i<m_queue.GetSize(); i++)
     {
       if(m_queue[i].GetDeadline() < Now())
-        m_queue.Drop(i);
+        {
+          m_queue.Drop(i);
+          m_dropped++;
+        }
     }
     
   if(m_queue.GetSize() >= threshold)

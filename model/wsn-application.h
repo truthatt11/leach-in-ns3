@@ -156,6 +156,7 @@ private:
   int64_t         m_pktDeadlineMin;  //!< Packet Expired Time Min
   int64_t         m_pktDeadlineLen;  //!< Packet Expired Time Len
   double          m_pktGenRate;   //!< Packet generation rate
+  int             m_pktGenPattern;   //!< Packet generation distribution model
 
   TracedValue<uint32_t>      m_pktCount;     //!< Total packet count
 

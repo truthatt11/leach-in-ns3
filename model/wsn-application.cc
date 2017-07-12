@@ -45,6 +45,8 @@
 #include "ns3/pointer.h"
 #include "ns3/leach-packet.h"
 
+#include <cmath>
+
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("WsnApplication");
@@ -78,20 +80,14 @@ WsnApplication::GetTypeId (void)
                    AddressValue (),
                    MakeAddressAccessor (&WsnApplication::m_peer),
                    MakeAddressChecker ())
-    /*
-    .AddAttribute ("OnTime", "A RandomVariableStream used to pick the duration of the 'On' state.",
-                   StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"),
-                   MakePointerAccessor (&WsnApplication::m_onTime),
-                   MakePointerChecker <RandomVariableStream>())
-    .AddAttribute ("OffTime", "A RandomVariableStream used to pick the duration of the 'Off' state.",
-                   StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"),
-                   MakePointerAccessor (&WsnApplication::m_offTime),
-                   MakePointerChecker <RandomVariableStream>())
-    */
     .AddAttribute ("PktGenRate", "Packet generation rate",
                    DoubleValue (1.0),
                    MakeDoubleAccessor (&WsnApplication::m_pktGenRate),
                    MakeDoubleChecker <double>())
+    .AddAttribute ("PktGenPattern", "Packet generation distribution model",
+                   IntegerValue (0),
+                   MakeIntegerAccessor (&WsnApplication::m_pktGenPattern),
+                   MakeIntegerChecker <int>())
     .AddAttribute ("MaxBytes", 
                    "The total number of bytes to send. Once these bytes are sent, "
                    "no packet is sent again, even in on state. The value zero means "
@@ -242,7 +238,35 @@ void WsnApplication::ScheduleNextTx ()
       uint32_t bits = m_pktSize * 8 - m_residualBits;
       NS_LOG_LOGIC ("bits = " << bits);
       Time nextTime (Seconds (bits /
-                              static_cast<double>(m_cbrRate.GetBitRate ())) + Seconds(1.0/m_pktGenRate)); // Time till next packet
+                              static_cast<double>(m_cbrRate.GetBitRate ()))); // Time till next packet
+      
+      switch(m_pktGenPattern)
+        {
+          case 0:
+            // suppose periodic model
+            nextTime += Seconds(1.0/m_pktGenRate);
+            break;
+          case 1:
+            // suppose Poisson model
+            {
+              Ptr<UniformRandomVariable> m_uniformRandomVariable = CreateObject<UniformRandomVariable> ();
+              double p = m_uniformRandomVariable->GetValue (0,1);
+              double poisson = 0.0, expo = exp(-m_pktGenRate);
+              int k;
+
+              for(k=0; poisson < p; k++)
+                {
+                  double temp = pow(m_pktGenRate, k);
+                  for(int i=1; i<=k; i++) temp /= i;
+                  poisson += temp*expo;
+                }
+              nextTime += Seconds(1.0/k);
+
+              break;
+            }
+          default:
+            break;
+        }
       NS_LOG_LOGIC ("nextTime = " << nextTime);
       m_sendEvent = Simulator::Schedule (nextTime,
                                          &WsnApplication::SendPacket, this);
