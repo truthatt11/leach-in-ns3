@@ -83,7 +83,7 @@ public:
   {
     m_packet = p;
   }
-    Ipv4Header GetIpv4Header () const
+  Ipv4Header GetIpv4Header () const
   {
     return m_header;
   }
@@ -140,14 +140,6 @@ public:
   uint32_t GetSize ();
   
   // Fields
-  uint32_t GetMaxQueueLen () const
-  {
-    return m_maxLen;
-  }
-  void SetMaxQueueLen (uint32_t len)
-  {
-    m_maxLen = len;
-  }
   Time GetQueueTimeout () const
   {
     return m_queueTimeout;
@@ -163,10 +155,6 @@ public:
 
 private:
   std::vector<QueueEntry> m_queue;
-  /// Notify that packet is dropped from queue by timeout
-//  void Drop (QueueEntry en, std::string reason);
-  /// The maximum number of packets that we allow a routing protocol to buffer.
-  uint32_t m_maxLen;
   /// The maximum period of time that a routing protocol is allowed to buffer a packet for, seconds.
   Time m_queueTimeout;
   static bool IsEqual (QueueEntry en, const Ipv4Address dst)

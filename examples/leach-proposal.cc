@@ -42,6 +42,7 @@
 #include "ns3/vector.h"
 #include "ns3/leach-packet.h"
 #include "ns3/udp-header.h"
+#include "ns3/netanim-module.h"
 #include <iostream>
 #include <cmath>
 
@@ -83,6 +84,7 @@ void
 CountDroppedPkt (uint32_t oldValue, uint32_t newValue)
 {
   packetsDropped += (newValue - oldValue);
+//  packetsDropped += 1;
 }
 
 
@@ -134,14 +136,14 @@ private:
 int main (int argc, char **argv)
 {
   LeachProposal test;
-  uint32_t nWifis = 30;
+  uint32_t nWifis = 100;
   uint32_t nSinks = 1;
   double totalTime = 50.0;
   std::string rate ("8kbps");
   std::string phyMode ("DsssRate11Mbps");
   uint32_t periodicUpdateInterval = 5;
   double dataStart = 0.0;
-  double lambda = 4.0;
+  double lambda = 1.0;
 
   CommandLine cmd;
   cmd.AddValue ("nWifis", "Number of WiFi nodes[Default:30]", nWifis);
@@ -181,7 +183,7 @@ LeachProposal::ReceivePacket (Ptr <Socket> socket)
   uint32_t packetSize = 0;
   uint32_t packetCount = 0;
   
-  NS_LOG_UNCOND (Simulator::Now ().GetSeconds () << " Received one packet!"/*  Uid: " << packet->GetUid()*/);
+  NS_LOG_UNCOND (Simulator::Now ().GetSeconds () << " Received one packet!");
   
   while ((packet = socket->Recv ()))
     {
@@ -189,7 +191,7 @@ LeachProposal::ReceivePacket (Ptr <Socket> socket)
       
       bytesTotal += packet->GetSize();
       packetSize += packet->GetSize();
-      NS_LOG_UNCOND("packet size: " << packet->GetSize());
+//      NS_LOG_UNCOND("packet size: " << packet->GetSize());
 //      packet->Print(std::cout);
 
       while(packet->GetSize() >= 56) {
@@ -253,6 +255,18 @@ LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std:
 
   std::cout << "\nStarting simulation for " << m_totalTime << " s ...\n";
 
+  AnimationInterface anim ("leach-animation.xml"); // Mandatory
+  for (uint32_t i = 0; i < m_nWifis; ++i)
+    {
+      anim.UpdateNodeDescription (nodes.Get (i), "STA"); // Optional
+      anim.UpdateNodeColor (nodes.Get (i), 255, 0, 0); // Optional
+    }
+  
+  anim.EnablePacketMetadata (); // Optional
+  anim.EnableIpv4RouteTracking ("routingtable-leach.xml", Seconds (0), Seconds (5), Seconds (0.25)); //Optional
+  anim.EnableWifiMacCounters (Seconds (0), Seconds (50)); //Optional
+  anim.EnableWifiPhyCounters (Seconds (0), Seconds (50)); //Optional
+  
   Simulator::Stop (Seconds (m_totalTime));
   Simulator::Run ();
 
@@ -291,10 +305,16 @@ LeachProposal::SetupMobility ()
   MobilityHelper mobility;
   ObjectFactory pos;
   uint32_t count = 0;
+  
+  
   pos.SetTypeId ("ns3::RandomRectanglePositionAllocator");
   pos.Set ("X", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=400.0]"));
   pos.Set ("Y", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=400.0]"));
-
+  
+  /*
+  pos.SetTypeId ("ns3::RandomDiscPositionAllocator");
+  pos.Set ("Rho", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=225.0]"));
+  */
   Ptr <PositionAllocator> taPositionAlloc = pos.Create ()->GetObject <PositionAllocator> ();
   mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
   mobility.SetPositionAllocator (taPositionAlloc);
@@ -355,7 +375,7 @@ LeachProposal::CreateDevices ()
   devices = wifi.Install (wifiPhy, wifiMac, nodes);
 
   AsciiTraceHelper ascii;
-  wifiPhy.EnablePcapAll ("Leach-Manet");
+//  wifiPhy.EnablePcapAll ("Leach-Manet");
 }
 
 void
@@ -390,7 +410,8 @@ LeachProposal::InstallApplications ()
   
   WsnHelper wsn1 ("ns3::UdpSocketFactory", Address (InetSocketAddress (interfaces.GetAddress (0), port)));
   wsn1.SetAttribute ("PktGenRate", DoubleValue(m_lambda));
-  wsn1.SetAttribute ("PktGenPattern", IntegerValue(1));
+  // 0 for periodic, 1 for Poisson
+  wsn1.SetAttribute ("PktGenPattern", IntegerValue(0));
   wsn1.SetAttribute ("PacketDeadlineLen", IntegerValue(3000000000));  // default
   wsn1.SetAttribute ("PacketDeadlineMin", IntegerValue(5000000000));  // default
   

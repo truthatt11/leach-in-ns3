@@ -106,6 +106,12 @@ private:
   uint32_t isSink;
   TracedValue<uint32_t> m_dropped;
   double   m_lambda;
+  
+  struct hash{
+    uint32_t uid;
+    Ptr<Packet> p;
+    struct hash* next;
+  }*m_hash[1021];
 
   /// PeriodicUpdateInterval specifies the periodic time interval between which the a node broadcasts
   /// its entire routing table.
@@ -130,8 +136,6 @@ private:
   RoutingTable m_routingTable;
   /// From selecting CHs, the best stores here
   RoutingTableEntry m_bestRoute;
-  /// The maximum number of packets that we allow a routing protocol to buffer.
-  uint32_t m_maxQueueLen;
   /// Node position
   Vector m_position;
   /// A "drop front on full" queue used by the routing layer to buffer packets to which it does not have a route.

@@ -50,31 +50,10 @@ bool
 PacketQueue::Enqueue (QueueEntry & entry)
 {
   NS_LOG_FUNCTION ("Enqueing packet destined for" << entry.GetIpv4Header ().GetDestination ());
-  uint32_t numPacketswithdst;
-  for (std::vector<QueueEntry>::const_iterator i = m_queue.begin (); i
-       != m_queue.end (); ++i)
-    {
-      if ((i->GetPacket ()->GetUid () == entry.GetPacket ()->GetUid ())
-          && (i->GetIpv4Header ().GetDestination ()
-              == entry.GetIpv4Header ().GetDestination ()))
-        {
-          return false;
-        }
-    }
-  numPacketswithdst = GetCountForPacketsWithDst (entry.GetIpv4Header ().GetDestination ());
-  NS_LOG_DEBUG ("Number of packets with this destination: " << numPacketswithdst);
-  /** For Brock Paper comparision*/
-  if (m_queue.size () >= m_maxLen)
-    {
-      NS_LOG_DEBUG ("Max packets reached for this destination. Not queuing any further packets");
-      return false;
-    }
-  else
-    {
-      // NS_LOG_DEBUG("Packet size while enqueing "<<entry.GetPacket()->GetSize());
-      m_queue.push_back (entry);
-      return true;
-    }
+
+  // NS_LOG_DEBUG("Packet size while enqueing "<<entry.GetPacket()->GetSize());
+  m_queue.push_back (entry);
+  return true;
 }
 
 void
@@ -82,23 +61,6 @@ PacketQueue::Drop (uint32_t idx)
 {
   m_queue.erase(m_queue.begin()+idx);
 }
-/*
-void
-PacketQueue::DropPacketWithDst (Ipv4Address dst)
-{
-  NS_LOG_FUNCTION ("Dropping packet to " << dst);
-  for (std::vector<QueueEntry>::iterator i = m_queue.begin ();
-       i != m_queue.end (); ++i)
-    {
-      if (IsEqual (*i, dst))
-        {
-          Drop (*i, "DropPacketWithDst ");
-        }
-    }
-  m_queue.erase (std::remove_if (m_queue.begin (), m_queue.end (),
-                                 std::bind2nd (std::ptr_fun (PacketQueue::IsEqual), dst)), m_queue.end ());
-}
-*/
 bool
 PacketQueue::Dequeue (Ipv4Address dst, QueueEntry & entry)
 {
@@ -144,14 +106,6 @@ PacketQueue::GetCountForPacketsWithDst (Ipv4Address dst)
     }
   return count;
 }
-/*
-void
-PacketQueue::Drop (QueueEntry en, std::string reason)
-{
-  NS_LOG_LOGIC (reason << en.GetPacket ()->GetUid () << " " << en.GetIpv4Header ().GetDestination ());
-  return;
-}
-*/
 
 }
 }

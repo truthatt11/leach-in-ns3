@@ -46,9 +46,9 @@
 #include <cmath>
 
 #define DA
-#define DA_PROP
+//#define DA_PROP
 //#define DA_OPT
-//#define DA_CL
+#define DA_CL
 //#define DA_SF
 
 
@@ -78,10 +78,6 @@ RoutingProtocol::GetTypeId (void)
                    TimeValue (Seconds (15)),
                    MakeTimeAccessor (&RoutingProtocol::m_periodicUpdateInterval),
                    MakeTimeChecker ())
-    .AddAttribute ("MaxQueueLen", "Maximum number of packets that we allow a routing protocol to buffer.",
-                   UintegerValue (500 /*assuming maximum nodes in simulation is 100*/),
-                   MakeUintegerAccessor (&RoutingProtocol::m_maxQueueLen),
-                   MakeUintegerChecker<uint32_t> ())
     .AddAttribute ("Position", "X and Y position of the node",
                    Vector3DValue (),
                    MakeVectorAccessor (&RoutingProtocol::m_position),
@@ -129,11 +125,11 @@ RoutingProtocol::RoutingProtocol ()
     m_respondToClusterHeadTimer (Timer::CANCEL_ON_DESTROY)
 {
   m_uniformRandomVariable = CreateObject<UniformRandomVariable> ();
+  for(int i=0; i<1021; i++) m_hash[i] = NULL;
 }
 
 RoutingProtocol::~RoutingProtocol ()
 {
-  NS_LOG_INFO(m_dropped);
 }
 
 void
@@ -174,7 +170,6 @@ RoutingProtocol::Start ()
     isSink = 1;
   } else {
     Round = 0;
-    m_queue.SetMaxQueueLen (m_maxQueueLen);
     m_routingTable.Setholddowntime (Time (m_periodicUpdateInterval));
     m_periodicUpdateTimer.SetFunction (&RoutingProtocol::PeriodicUpdate,this);
     m_broadcastClusterHeadTimer.SetFunction (&RoutingProtocol::SendBroadcast,this);
@@ -198,26 +193,27 @@ RoutingProtocol::RouteOutput (Ptr<Packet> p,
       Ptr<Ipv4Route> route;
       return route;
     }
-  sockerr = Socket::ERROR_NOTERROR;
-  Ptr<Ipv4Route> route;
 
-#ifdef DA
-  Ipv4Address src = header.GetSource ();
-#endif
   Ipv4Address dst = header.GetDestination ();
   RoutingTableEntry rt;
   NS_LOG_DEBUG ("Packet Size: " << p->GetSize ()
                                 << ", Packet id: " << p->GetUid () << ", Destination address in Packet: " << dst);
 #ifdef DA
-  if (src == m_mainAddress) EnqueuePacket(p, header);
-  
-  if (DataAggregation (p)) {
-#endif
-      if (m_routingTable.LookupRoute (dst,rt))
+  if (p->GetSize()%56 == 0)
+    {
+      if (DataAggregation (p))
         {
-          return rt.GetRoute();
-        }
+#endif
+          if (m_routingTable.LookupRoute (dst,rt))
+            {
+              return rt.GetRoute();
+            }
 #ifdef DA
+        }
+    }
+  else if (m_routingTable.LookupRoute (dst,rt))
+    {
+      return rt.GetRoute();
     }
 #endif
 
@@ -573,7 +569,7 @@ void
 RoutingProtocol::PeriodicUpdate ()
 {
   double prob = m_uniformRandomVariable->GetValue (0,1);
-  // 10 round a cycle, 30/10=3 cluster heads per round
+  // 10 round a cycle, 100/10=10 cluster heads per round
   int n = 10;
   double p = 1.0/n;
   double t = p/(1-p*(Round%n));
@@ -796,19 +792,34 @@ RoutingProtocol::EnqueuePacket (Ptr<Packet> p,
   
   Ptr<Packet> out;
   UdpHeader uhdr;
-  p->RemoveHeader(uhdr);
-  /*
-  std::cout << " ------------Start-----------\n";
-  p->Print(std::cout);
-  std::cout << " ------------End------------\n";
-  */
+  uint32_t slot = p->GetUid()%1021;
+  struct hash* now = m_hash[slot];
+  
+  NS_LOG_DEBUG("IsDontFragement: " << header.IsDontFragment());
+  
+  if(header.GetFragmentOffset() == 0) p->RemoveHeader(uhdr);
+
+  while (now != NULL)
+    {
+      if(now->uid == p->GetUid())
+        break;
+      now = now->next;
+    }
+  if(now != NULL)
+    {
+      NS_LOG_DEBUG("now->p size " << now->p->GetSize() << ", p size " << p->GetSize());
+      now->p->AddAtEnd(p);
+      p = now->p;
+      NS_LOG_DEBUG("after p size " << p->GetSize());
+    }
+  
   while(DeAggregate(p, out))
     {
       QueueEntry newEntry (out,header);
       bool result = m_queue.Enqueue (newEntry);
       if (result)
         {
-          NS_LOG_DEBUG ("Added packet " << p->GetUid () << " to queue.");
+          NS_LOG_DEBUG ("Added packet " << out->GetUid () << " to queue.");
         }
     }
 }
@@ -824,9 +835,26 @@ RoutingProtocol::DeAggregate (Ptr<Packet> in, Ptr<Packet>& out)
       
       out = new Packet(16);
       out->AddHeader(leachHeader);
-//      NS_LOG_DEBUG("de-aggregated size: " << out->GetSize());
+      NS_LOG_DEBUG("deadline" << leachHeader.GetDeadline());
       return true;
     }
+  uint32_t slot = in->GetUid()%1021;
+  struct hash* now = m_hash[slot];
+  while(now != NULL)
+    {
+      if(now->uid == in->GetUid()) break;
+      now = now->next;
+    }
+  if(now == NULL) 
+    {
+      now = new struct hash;
+      now->uid = in->GetUid();
+      now->next = m_hash[slot];
+      m_hash[slot] = now;
+    }
+  now->p = in;
+  NS_LOG_DEBUG("Size left " << in->GetSize() << ", on UID " << in->GetUid());
+  
   return false;
 }
 
@@ -861,18 +889,35 @@ RoutingProtocol::Proposal (Ptr<Packet> p)
   LeachHeader hdr;
   Time deadLine = Now();
   
-  deadLine += Seconds(0.064)+Seconds(1/m_lambda);
-  if(!cluster_head_this_round)
-    deadLine += Seconds(0.064)+Seconds(1/m_lambda);
+  // 1.28 = 2*0.64, 0.064 = 64bytes/8kbps
+  // average 10 cluster heads
+  // average 10 members per cluster
+  deadLine += Seconds(3.64+1.0/m_lambda);
+//  if(!cluster_head_this_round)
+    // depend on average tx size from cluster member
+    // depend on deadline setting
+    // * average packet_size?
+//    deadLine += Seconds(0.032+1.0/m_lambda);
+
+//  NS_LOG_UNCOND("Now: " << Now() << ", Deadline: " << deadLine);
+  for (int i=0; i<(int)m_queue.GetSize(); i++)
+    {
+      NS_LOG_DEBUG("GetDeadline: " << m_queue[i].GetDeadline() << ", UID: " << m_queue[i].GetPacket()->GetUid() << ", Now: " << Now());
+      if(m_queue[i].GetDeadline() < Now())
+        {
+          // drop it
+          NS_LOG_DEBUG("Drop");
+//          NS_LOG_DEBUG("GetLeachHeader: " << m_queue[i].GetDeadline() << ", Now: " << Now());
+          m_queue.Drop (i);
+          m_dropped++;
+          i--;
+        }
+    }
   
   for(uint32_t i=0; i<m_queue.GetSize(); i++) {
+//    NS_LOG_UNCOND("GetDeadline: " << m_queue[i].GetDeadline() << ", deadline: " << deadLine);
     if(m_queue[i].GetDeadline() < deadLine) {
       expired++;
-      if(m_queue[i].GetDeadline() < Now()) {
-        // drop it
-        m_queue.Drop (i);
-        m_dropped++;
-      }
     }
   }
   if(cluster_head_this_round) {
@@ -882,15 +927,14 @@ RoutingProtocol::Proposal (Ptr<Packet> p)
     expected = 1;
   }
   
-  if(expired > expected || Now() > Seconds(49.5)) {
+//  NS_LOG_UNCOND("expired: " << expired << ", expected: " << expected);
+  if(expired >= expected || Now() > Seconds(48.5)) {
     // merge data
     QueueEntry temp;
+    
     while(m_queue.Dequeue(m_sinkAddress, temp)) {
       p->AddAtEnd(temp.GetPacket());
     }
-//    NS_LOG_FUNCTION("Packet aggregation size: " << p->GetSize());
-    
-    if(Now() > Seconds(49.8)) std::cout << "Queue size left: " << m_queue.GetSize() << "\n";
     
     return true;
   }
@@ -912,7 +956,6 @@ RoutingProtocol::OptTM (Ptr<Packet> p)
       for(uint j=0; j<m_queue.GetSize(); j++)
         {
           if(m_queue[j].GetDeadline() >= time) rewards[i] += m_queue[j].GetDeadline().ToInteger(Time::MS) - time.ToInteger(Time::MS);
-//          std::cout << "test reward[" << i << "] = " << rewards[i] << "\n";
         }
       for(int j=1; j<i+step; j++)
         {
@@ -923,15 +966,11 @@ RoutingProtocol::OptTM (Ptr<Packet> p)
   
   for(int i=0; i<100; i++)
     {
-      
-//      std::cout << rewards[i] << ", ";
-      
       if(rewards[i] > maxR)
         {
           maxR = rewards[i];
         }
     }
-//  std::cout << "\n";
   
   // wait=1, transmit=2
   for(int i=98; i>=0; i--)
@@ -948,9 +987,6 @@ RoutingProtocol::OptTM (Ptr<Packet> p)
             {
               rn[k] = max(0.0, i*rn[k+1]/(k+1) + rb[k+1]/(k+1));
               rb[k] = max(rewards[k], rn[k]);
-              
-//              std::cout << rn[k] << ", " << rb[k] << "\n";
-
             }
 
           if(rewards[i] >= (uint32_t)rb[i+1])
@@ -961,7 +997,7 @@ RoutingProtocol::OptTM (Ptr<Packet> p)
     }
   step++;
   
-  if(actions[0] > 1 || Now() > Seconds(49.5))
+  if(actions[0] > 1 || Now() > Seconds(48.5))
     {
       QueueEntry temp;
       while(m_queue.Dequeue(m_sinkAddress, temp))
@@ -979,16 +1015,17 @@ bool
 RoutingProtocol::ControlLimit (Ptr<Packet> p)
 {
   static uint32_t threshold = (1/(log(1/0.1)*(log(1/0.1)+m_lambda)))+2;
-  for(uint32_t i=0; i<m_queue.GetSize(); i++)
+  for(int i=0; i<(int)m_queue.GetSize(); i++)
     {
       if(m_queue[i].GetDeadline() < Now())
         {
           m_queue.Drop(i);
           m_dropped++;
+          i--;
         }
     }
     
-  if(m_queue.GetSize() >= threshold)
+  if(m_queue.GetSize() >= threshold || Now() > Seconds(48.5))
     {
       QueueEntry temp;
       while(m_queue.Dequeue(m_sinkAddress, temp)) {
