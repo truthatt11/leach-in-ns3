@@ -928,7 +928,7 @@ RoutingProtocol::Proposal (Ptr<Packet> p)
   }
   
 //  NS_LOG_UNCOND("expired: " << expired << ", expected: " << expected);
-  if(expired >= expected || Now() > Seconds(19.0)) {
+  if(expired >= expected || Now() > Seconds(48.5)) {
     // merge data
     QueueEntry temp;
     
