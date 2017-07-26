@@ -46,9 +46,9 @@
 #include <cmath>
 
 #define DA
-//#define DA_PROP
+#define DA_PROP
 //#define DA_OPT
-#define DA_CL
+//#define DA_CL
 //#define DA_SF
 
 
@@ -583,7 +583,7 @@ RoutingProtocol::PeriodicUpdate ()
   OutputStreamWrapper temp = OutputStreamWrapper(&std::cout);
   m_routingTable.Print(&temp);
 */
-  if(Round%20 == 0) valid = 1;
+  if(Round%n == 0) valid = 1;
   Round++;
   m_dist = 1e100;
   cluster_head_this_round = 0;
@@ -892,12 +892,12 @@ RoutingProtocol::Proposal (Ptr<Packet> p)
   // 1.28 = 2*0.64, 0.064 = 64bytes/8kbps
   // average 10 cluster heads
   // average 10 members per cluster
-  deadLine += Seconds(3.64+1.0/m_lambda);
-//  if(!cluster_head_this_round)
+  deadLine += Seconds(m_queue.GetSize()/m_lambda);
+  if(!cluster_head_this_round)
     // depend on average tx size from cluster member
     // depend on deadline setting
     // * average packet_size?
-//    deadLine += Seconds(0.032+1.0/m_lambda);
+    deadLine += Seconds(0.064+1.0/m_lambda);
 
 //  NS_LOG_UNCOND("Now: " << Now() << ", Deadline: " << deadLine);
   for (int i=0; i<(int)m_queue.GetSize(); i++)
@@ -928,7 +928,7 @@ RoutingProtocol::Proposal (Ptr<Packet> p)
   }
   
 //  NS_LOG_UNCOND("expired: " << expired << ", expected: " << expected);
-  if(expired >= expected || Now() > Seconds(48.5)) {
+  if(expired >= expected || Now() > Seconds(19.0)) {
     // merge data
     QueueEntry temp;
     
