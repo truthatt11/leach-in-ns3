@@ -251,16 +251,23 @@ void WsnApplication::ScheduleNextTx ()
             {
               Ptr<UniformRandomVariable> m_uniformRandomVariable = CreateObject<UniformRandomVariable> ();
               double p = m_uniformRandomVariable->GetValue (0,1);
-              double poisson = 0.0, expo = exp(-m_pktGenRate);
+              double poisson, expo = exp(-m_pktGenRate);
               int k;
 
-              for(k=0; poisson < p; k++)
+              poisson = expo;
+              for(k=1; poisson < p; k++)
                 {
                   double temp = pow(m_pktGenRate, k);
                   for(int i=1; i<=k; i++) temp /= i;
                   poisson += temp*expo;
                 }
-              nextTime += Seconds(1.0/k);
+              k--;
+              if(k>0) nextTime += Seconds(1.0/k);
+              else
+                {
+                  Simulator::Schedule (Seconds(1.0), &WsnApplication::ScheduleNextTx, this);
+                  return;
+                }
 
               break;
             }

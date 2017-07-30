@@ -142,7 +142,7 @@ int main (int argc, char **argv)
   std::string phyMode ("DsssRate11Mbps");
   uint32_t periodicUpdateInterval = 5;
   double dataStart = 0.0;
-  double lambda = 4.0;
+  double lambda = 1.0;
 
   CommandLine cmd;
   cmd.AddValue ("nWifis", "Number of WiFi nodes[Default:30]", nWifis);
@@ -274,10 +274,11 @@ LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std:
   Simulator::Run ();
 
   double avgIdle = 0.0, avgTx = 0.0, avgRx = 0.0;
+  double energyTx = 0.0, energyRx = 0.0;
   
-  NS_LOG_UNCOND ("Total bytes received: " << bytesTotal);
-  NS_LOG_UNCOND ("Total packets received/decompressed/received yet expired/dropped/generated: " << packetsReceived << "/" << packetsDecompressed
-                 << "/" << packetsReceivedYetExpired << "/" << packetsDropped << "/" << packetsGenerated);
+  std::cout << "Total bytes received: " << bytesTotal << "\n";
+  std::cout << "Total packets received/decompressed/received yet expired+dropped/generated: " << packetsReceived << "/" << packetsDecompressed
+                 << "/" << packetsReceivedYetExpired + packetsDropped << "/" << packetsGenerated << "\n";
   for (uint32_t i=0; i<m_nWifis; i++)
     {
       Ptr<BasicEnergySource> basicSourcePtr = DynamicCast<BasicEnergySource> (sources.Get (i));
@@ -287,9 +288,12 @@ LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std:
       avgIdle += ptr->GetIdleTime().ToDouble(Time::MS);
       avgTx += ptr->GetTxTime().ToDouble(Time::MS);
       avgRx += ptr->GetRxTime().ToDouble(Time::MS);
+      energyTx += ptr->GetTxTime().ToDouble(Time::MS) * ptr->GetTxCurrentA();
+      energyRx += ptr->GetRxTime().ToDouble(Time::MS) * ptr->GetTxCurrentA();
 //      NS_LOG_UNCOND("Idle time: " << ptr->GetIdleTime() << ", Tx Time: " << ptr->GetTxTime() << ", Rx Time: " << ptr->GetRxTime());
     }
-  NS_LOG_UNCOND("Avg Idle time(ms): " << avgIdle/m_nWifis << ", Avg Tx Time(ms): " << avgTx/m_nWifis << ", Avg Rx Time(ms): " << avgRx/m_nWifis);
+  std::cout << "Avg Idle time(ms): " << avgIdle/m_nWifis << ", Avg Tx Time(ms): " << avgTx/m_nWifis << ", Avg Rx Time(ms): " << avgRx/m_nWifis << "\n";
+  std::cout << "Avg Tx energy(mJ): " << energyTx/m_nWifis << ", Avg Rx energy(mJ): " << energyRx/m_nWifis << "\n";
 
   Simulator::Destroy ();
 }
@@ -309,21 +313,22 @@ LeachProposal::SetupMobility ()
   ObjectFactory pos;
   uint32_t count = 0;
   
-  
-  pos.SetTypeId ("ns3::RandomRectanglePositionAllocator");
   /*
+  pos.SetTypeId ("ns3::RandomRectanglePositionAllocator");
+  
   pos.Set ("X", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=400.0]"));
   pos.Set ("Y", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=400.0]"));
-  */
+  
+  
   pos.Set ("X", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=800.0]"));
   pos.Set ("Y", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=200.0]"));
+  */
   
-  /*
   pos.SetTypeId ("ns3::RandomDiscPositionAllocator");
   pos.Set ("Rho", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=225.0]"));
   pos.Set ("X", DoubleValue (225.0));
   pos.Set ("Y", DoubleValue (225.0));
-  */
+  
   Ptr <PositionAllocator> taPositionAlloc = pos.Create ()->GetObject <PositionAllocator> ();
   mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
   mobility.SetPositionAllocator (taPositionAlloc);
