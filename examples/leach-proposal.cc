@@ -313,22 +313,22 @@ LeachProposal::SetupMobility ()
   ObjectFactory pos;
   uint32_t count = 0;
   
-  /*
-  pos.SetTypeId ("ns3::RandomRectanglePositionAllocator");
   
+  pos.SetTypeId ("ns3::RandomRectanglePositionAllocator");
+  /*
   pos.Set ("X", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=400.0]"));
   pos.Set ("Y", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=400.0]"));
-  
+  */
   
   pos.Set ("X", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=800.0]"));
   pos.Set ("Y", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=200.0]"));
-  */
   
+  /*
   pos.SetTypeId ("ns3::RandomDiscPositionAllocator");
   pos.Set ("Rho", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=225.0]"));
   pos.Set ("X", DoubleValue (225.0));
   pos.Set ("Y", DoubleValue (225.0));
-  
+  */
   Ptr <PositionAllocator> taPositionAlloc = pos.Create ()->GetObject <PositionAllocator> ();
   mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
   mobility.SetPositionAllocator (taPositionAlloc);

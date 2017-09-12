@@ -435,8 +435,21 @@ RoutingProtocol::RouteInput (Ptr<const Packet> p,
 #endif
         }
     }
+    /*
   NS_LOG_LOGIC ("Drop packet " << p->GetUid ()
                                << " as there is no route to forward it.");
+    */
+#ifndef DA
+  NS_LOG_DEBUG("Route not found");
+  
+  Ptr<Ipv4Route> rt = Create<Ipv4Route> ();
+  rt->SetDestination (dst);
+  rt->SetSource (origin);
+  rt->SetGateway (Ipv4Address ("127.0.0.1"));
+  rt->SetOutputDevice (m_lo);
+  
+  EnqueueForNoDA(ucb, rt, p, header);
+#endif
   return false;
 }
 
