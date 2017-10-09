@@ -142,7 +142,7 @@ int main (int argc, char **argv)
   std::string phyMode ("DsssRate11Mbps");
   uint32_t periodicUpdateInterval = 5;
   double dataStart = 0.0;
-  double lambda = 1.0;
+  double lambda = 4.0;
 
   CommandLine cmd;
   cmd.AddValue ("nWifis", "Number of WiFi nodes[Default:30]", nWifis);
