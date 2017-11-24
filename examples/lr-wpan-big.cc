@@ -53,9 +53,9 @@
 #include <cstdlib>
 #include <vector>
 
-//#define DA_PROP
+#define DA_PROP
 //#define DA_OPT
-#define DA_CL
+//#define DA_CL
 
 
 
@@ -78,17 +78,17 @@ static bool ControlLimit (int);
 #endif
 
 static NodeContainer nodes, gw;
-static Ptr<LrWpanNetDevice> devices[20];
+static Ptr<LrWpanNetDevice> devices[68];
 static Ptr<Socket> gw_socket[4], sink_socket;
 static Ptr<Node> sink;
 static NetDeviceContainer devs, sink_dev;
 static Ipv4InterfaceContainer sink_inf, devs_inf;
 static uint32_t total_packet = 0, measurementCount = 0;
-static uint32_t m_dropped = 0, total_gened = 0, gened[16];
+static uint32_t m_dropped = 0, total_gened = 0, gened[68];
 static vector<Ptr<Packet>> gw_buffer[4];
 static int m_lambda = 2;
-static Time rx_time[22], tx_time[22], from_time[22];
-static int periodic = 1;
+static Time rx_time[70], tx_time[70], from_time[70];
+static int periodic = 0;
 EnergySourceContainer sources;
 
 
@@ -101,7 +101,7 @@ static void DataIndication (McpsDataIndicationParams params, Ptr<Packet> p)
   params.m_dstAddr.CopyTo(dst);
 	
   // Instead of TX, enqueue -> data aggregation -> Tx or not
-  int gw_index = dst[1]-17;
+  int gw_index = dst[1]-65;
   if(AggregationPolicy(gw_index)) {
     Aggregate (a, gw_index);
     gw_socket[gw_index]->Send(a);
@@ -215,7 +215,7 @@ iotTest::ReceivePacket (Ptr <Socket> socket)
 void
 iotTest::setup ()
 {
-  nodes.Create(16);
+  nodes.Create(64);
   gw.Create(4);
   sink = CreateObject <Node> ();
 
@@ -226,9 +226,9 @@ iotTest::setup ()
   channel->AddPropagationLossModel (propModel);
   channel->SetPropagationDelayModel (delayModel);
   
-  // In a for loop
+  // sensor node lr-wpan interface
   string a, b;
-  for (int i=0; i < 16; i++) {
+  for (int i=0; i < 64; i++) {
     char name[5];
     devices[i] = CreateObject<LrWpanNetDevice> ();
     
@@ -241,7 +241,7 @@ iotTest::setup ()
     devices[i]->SetChannel (channel);
     
     nodes.Get(i)->AddDevice (devices[i]);
-    setMobility(nodes.Get(i), Vector ((i/4)*20,(i%4)*20,0));
+    setMobility(nodes.Get(i), Vector ((i/8)*20,(i%8)*20,0));
     
     sprintf(name, "%d", i);
     devices[i]->GetPhy ()->TraceConnect ("TrxState", std::string (name), MakeCallback (&StateChangeNotification));
@@ -268,40 +268,40 @@ iotTest::setup ()
   
   for (int i=0; i < 4; i++) {
     char name[5];
-    devices[i+16] = CreateObject<LrWpanNetDevice> ();
+    devices[i+64] = CreateObject<LrWpanNetDevice> ();
     
     stringstream ss;
     ss << setbase(16) << setfill('0') << setw(2);
-    ss << i+17;
+    ss << i+65;
     ss >> a;
     b = "00:"+a;
-    devices[i+16]->SetAddress (Mac16Address (b.c_str()));
-    devices[i+16]->SetChannel (channel);
+    devices[i+64]->SetAddress (Mac16Address (b.c_str()));
+    devices[i+64]->SetChannel (channel);
     
-    gw.Get(i)->AddDevice (devices[i+16]);
+    gw.Get(i)->AddDevice (devices[i+64]);
     NetDeviceContainer az = wifi.Install (wifiPhy, wifiMac, gw.Get(i));
-    setMobility (gw.Get(i), Vector ((i/2)*40+10,(i%2)*40+10,0));
+    setMobility (gw.Get(i), Vector ((i/2)*80+30,(i%2)*80+30,0));
     devs.Add(az);
     
-    sprintf(name, "%d", i+16);
-    devices[i+16]->GetPhy ()->TraceConnect ("TrxState", std::string (name), MakeCallback (&StateChangeNotification));
+    sprintf(name, "%d", i+64);
+    devices[i+64]->GetPhy ()->TraceConnect ("TrxState", std::string (name), MakeCallback (&StateChangeNotification));
     
     McpsDataConfirmCallback cb0;
     cb0 = MakeCallback (&DataConfirm);
-    devices[i+16]->GetMac ()->SetMcpsDataConfirmCallback (cb0);
+    devices[i+64]->GetMac ()->SetMcpsDataConfirmCallback (cb0);
     
     McpsDataIndicationCallback cb1;
     cb1 = MakeCallback (&DataIndication);
-    devices[i+16]->GetMac ()->SetMcpsDataIndicationCallback (cb1);
+    devices[i+64]->GetMac ()->SetMcpsDataIndicationCallback (cb1);
   }
-
+  
   sink_dev = wifi.Install (wifiPhy, wifiMac, sink);
-  setMobility (sink, Vector (100,100,0));
+  setMobility (sink, Vector (200,200,0));
   wifiPhy.EnablePcapAll ("IoT-Test");  
   
   BasicEnergySourceHelper basicSourceHelper;
   // configure energy source
-  basicSourceHelper.Set ("BasicEnergySourceInitialEnergyJ", DoubleValue (100));
+  basicSourceHelper.Set ("BasicEnergySourceInitialEnergyJ", DoubleValue (300));
   // install source
   sources = basicSourceHelper.Install (gw);
   // device energy model
@@ -353,13 +353,13 @@ iotTest::Run ()
 {
   double avg_tx, avg_rx;
   double energyTx, energyRx, avgIdle, avgTx, avgRx;
-  for (int i=0; i<16; i++) ScheduleNext (i);
+  for (int i=0; i<64; i++) ScheduleNext (i);
 	
-  AnimationInterface anim ("iot-small.xml"); // Mandatory
+  AnimationInterface anim ("iot-big.xml"); // Mandatory
   anim.UpdateNodeDescription (sink, "sink"); // Optional
   anim.UpdateNodeColor (sink, 0, 0, 255); // Optional
   anim.UpdateNodeSize ( sink->GetId(), 3.0, 3.0); // Optional
-  for (uint32_t i = 0; i < 16; ++i)
+  for (uint32_t i = 0; i < 64; ++i)
     {
       anim.UpdateNodeDescription (nodes.Get (i), "node"); // Optional
       anim.UpdateNodeColor (nodes.Get (i), 255, 0, 0); // Optional
@@ -371,23 +371,21 @@ iotTest::Run ()
       anim.UpdateNodeColor (gw.Get (i), 0, 255, 0); // Optional
       anim.UpdateNodeSize ( gw.Get(i)->GetId(), 2.0, 2.0); // Optional
     }
-  
 	
   Simulator::Stop (Seconds (20.0));
   Simulator::Run ();
-
+  
   avg_tx = avg_rx = 0.0;
-  for(int i=0; i<20; i++) {
+  for(int i=0; i<68; i++) {
     avg_tx += tx_time[i].ToDouble(Time::US);
     avg_rx += rx_time[i].ToDouble(Time::US);
   }
-	
-  for (int i=0; i<16; i++) {
-    total_gened += gened[i];
+  for (int i=0; i<64; i++) {
+	  	total_gened += gened[i];
   }
 	
   NS_LOG_UNCOND ("#pkts/#measurements/#drop/#gen: " << total_packet << " / " << measurementCount << " / " << m_dropped << " / " << total_gened);
-  NS_LOG_UNCOND ("LrWpan Tx(ms)/Rx(ms): " << avg_tx/20 << " / " << std::fixed << avg_rx/20);
+  NS_LOG_UNCOND ("LrWpan Tx(ms)/Rx(ms): " << avg_tx/68 << " / " << std::fixed << avg_rx/68);
 
   energyTx = energyRx = avgIdle = avgTx = avgRx = 0.0;
   for (uint32_t i=0; i<4; i++) {
@@ -400,7 +398,6 @@ iotTest::Run ()
     avgRx += ptr->GetRxTime().ToDouble(Time::MS);
     energyTx += ptr->GetTxTime().ToDouble(Time::MS) * ptr->GetTxCurrentA() * 3;
     energyRx += ptr->GetRxTime().ToDouble(Time::MS) * ptr->GetTxCurrentA() * 3;
-//      NS_LOG_UNCOND("Idle time: " << ptr->GetIdleTime() << ", Tx Time: " << ptr->GetTxTime() << ", Rx Time: " << ptr->GetRxTime());
   }
 	
 //  NS_LOG_UNCOND ("WiFi energy Cost");
@@ -417,12 +414,12 @@ iotTest::TxPkt (int index)
   Ptr<UniformRandomVariable> var = CreateObject<UniformRandomVariable> ();
   
   // Every sensor node transmit data to their gateway
-	int i = (index/8)*2 + (index%4)/2;
+	int i = (index/32)*2 + (index%8)/4;
     McpsDataRequestParams params;
     params.m_srcAddrMode = SHORT_ADDR;
     params.m_dstAddrMode = SHORT_ADDR;
     params.m_dstPanId = 0;
-    params.m_dstAddr = devices[i+16]->GetMac ()->GetShortAddress ();
+    params.m_dstAddr = devices[i+64]->GetMac ()->GetShortAddress ();
     params.m_msduHandle = 0;
     params.m_txOptions = TX_OPTION_ACK;
 
@@ -466,6 +463,7 @@ iotTest::ScheduleNext (int index)
       return;
     }
   }
+	
   TxPkt(index);
 }
 
@@ -503,7 +501,7 @@ Proposal (int gw_index)
       expired++;
     }
   }
-  expected = 4;
+  expected = 16;
   
   if(expired >= expected || Now() > Seconds(48.5)) {
     return true;

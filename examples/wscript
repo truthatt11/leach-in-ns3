@@ -4,5 +4,8 @@ def build(bld):
      obj = bld.create_ns3_program('leach-proposal', ['wifi', 'internet', 'leach', 'applications', 'netanim'])
      obj.source = 'leach-proposal.cc'
 
-     obj = bld.create_ns3_program('lr-wpan-real', ['wifi', 'internet', 'leach', 'applications', 'lr-wpan'])
+     obj = bld.create_ns3_program('lr-wpan-real', ['wifi', 'internet', 'leach', 'applications', 'lr-wpan', 'netanim'])
      obj.source = 'lr-wpan-real.cc'
+
+     obj = bld.create_ns3_program('lr-wpan-big', ['wifi', 'internet', 'leach', 'applications', 'lr-wpan', 'netanim'])
+     obj.source = 'lr-wpan-big.cc'
