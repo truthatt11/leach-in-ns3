@@ -44,6 +44,7 @@
 
 #include <iostream>
 #include <cmath>
+#include <vector>
 
 //#define DA
 //#define DA_PROP
@@ -102,6 +103,11 @@ Vector
 RoutingProtocol::GetPosition () const
 {
   return m_position;
+}
+std::vector<struct msmt>*
+RoutingProtocol::getTimeline()
+{
+  return &timeline;
 }
   
 int64_t
@@ -805,6 +811,7 @@ RoutingProtocol::EnqueuePacket (Ptr<Packet> p,
   
   Ptr<Packet> out;
   UdpHeader uhdr;
+  LeachHeader leachHeader;
   uint32_t slot = p->GetUid()%1021;
   struct hash* now = m_hash[slot];
   
@@ -826,10 +833,15 @@ RoutingProtocol::EnqueuePacket (Ptr<Packet> p,
       NS_LOG_DEBUG("after p size " << p->GetSize());
     }
   
-  while(DeAggregate(p, out))
+  while(DeAggregate(p, out, leachHeader))
     {
       QueueEntry newEntry (out,header);
       bool result = m_queue.Enqueue (newEntry);
+      struct msmt temp;
+      
+      temp.begin = Simulator::Now();
+      temp.end = leachHeader.GetDeadline();
+      timeline.push_back(temp);
       if (result)
         {
           NS_LOG_DEBUG ("Added packet " << out->GetUid () << " to queue.");
@@ -838,7 +850,7 @@ RoutingProtocol::EnqueuePacket (Ptr<Packet> p,
 }
 
 bool
-RoutingProtocol::DeAggregate (Ptr<Packet> in, Ptr<Packet>& out)
+RoutingProtocol::DeAggregate (Ptr<Packet> in, Ptr<Packet>& out, LeachHeader& lhdr)
 {
   if(in->GetSize() >= 56)
     {
@@ -846,6 +858,7 @@ RoutingProtocol::DeAggregate (Ptr<Packet> in, Ptr<Packet>& out)
       in->RemoveHeader(leachHeader);
       in->RemoveAtStart(16);
       
+      lhdr = leachHeader;
       out = new Packet(16);
       out->AddHeader(leachHeader);
       NS_LOG_DEBUG("deadline" << leachHeader.GetDeadline());
@@ -899,7 +912,7 @@ RoutingProtocol::Proposal (Ptr<Packet> p)
   NS_LOG_FUNCTION (this);
   // pick up those selected entry and send
   int expired = 0, expected;
-  LeachHeader hdr;
+  //LeachHeader hdr;
   Time deadLine = Now();
   
   // 1.28 = 2*0.64, 0.064 = 64bytes/8kbps

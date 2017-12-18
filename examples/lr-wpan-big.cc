@@ -53,9 +53,9 @@
 #include <cstdlib>
 #include <vector>
 
-#define DA_PROP
+//#define DA_PROP
 //#define DA_OPT
-//#define DA_CL
+#define DA_CL
 
 
 
@@ -86,7 +86,7 @@ static Ipv4InterfaceContainer sink_inf, devs_inf;
 static uint32_t total_packet = 0, measurementCount = 0;
 static uint32_t m_dropped = 0, total_gened = 0, gened[68];
 static vector<Ptr<Packet>> gw_buffer[4];
-static int m_lambda = 2;
+static int m_lambda = 8;
 static Time rx_time[70], tx_time[70], from_time[70];
 static int periodic = 0;
 EnergySourceContainer sources;
@@ -176,6 +176,7 @@ int main (int argc, char *argv[])
   cmd.AddValue ("verbose", "turn on all log components", verbose);
 
   cmd.Parse (argc, argv);
+  SeedManager::SetSeed (113);
 
   LrWpanHelper lrWpanHelper;
   if (verbose)
@@ -355,6 +356,7 @@ iotTest::Run ()
   double energyTx, energyRx, avgIdle, avgTx, avgRx;
   for (int i=0; i<64; i++) ScheduleNext (i);
 	
+	/*
   AnimationInterface anim ("iot-big.xml"); // Mandatory
   anim.UpdateNodeDescription (sink, "sink"); // Optional
   anim.UpdateNodeColor (sink, 0, 0, 255); // Optional
@@ -371,6 +373,7 @@ iotTest::Run ()
       anim.UpdateNodeColor (gw.Get (i), 0, 255, 0); // Optional
       anim.UpdateNodeSize ( gw.Get(i)->GetId(), 2.0, 2.0); // Optional
     }
+	*/
 	
   Simulator::Stop (Seconds (20.0));
   Simulator::Run ();

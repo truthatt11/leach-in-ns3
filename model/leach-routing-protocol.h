@@ -51,6 +51,12 @@
 namespace ns3 {
 namespace leach {
 
+
+struct msmt{
+  Time begin;
+  Time end;
+};
+  
 /**
  * \ingroup leach
  * \brief LEACH routing protocol.
@@ -83,6 +89,10 @@ public:
   // Methods to handle protocol parameters
   void SetPosition (Vector f);
   Vector GetPosition () const;
+  
+  std::vector<struct msmt>* getTimeline();
+
+  std::vector<struct msmt> timeline;
 
  /**
   * Assign a fixed random variable stream number to the random variables
@@ -167,7 +177,7 @@ private:
   
   /// De-aggregate chunk of data
   bool
-  DeAggregate (Ptr<Packet> in, Ptr<Packet>& out);
+  DeAggregate (Ptr<Packet> in, Ptr<Packet>& out, LeachHeader&);
   
   /// Find socket with local interface address iface
   Ptr<Socket>

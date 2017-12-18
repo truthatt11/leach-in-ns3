@@ -43,7 +43,10 @@
 #include "ns3/leach-packet.h"
 #include "ns3/udp-header.h"
 #include "ns3/netanim-module.h"
+
+#include <cstdio>
 #include <iostream>
+#include <algorithm>
 #include <cmath>
 
 
@@ -86,6 +89,11 @@ CountDroppedPkt (uint32_t oldValue, uint32_t newValue)
   packetsDropped += (newValue - oldValue);
 }
 
+bool
+cmp (struct ns3::leach::msmt a, struct ns3::leach::msmt b)
+{
+  return (a.begin < b.begin);
+}
 
 class LeachProposal
 {
@@ -112,8 +120,9 @@ private:
   uint32_t packetsReceived;
   uint32_t packetsReceivedYetExpired;
   uint32_t packetsDecompressed;
-  Vector positions[105];
+  Vector positions[205];
   double m_lambda;
+  std::vector<struct ns3::leach::msmt>* m_timeline[205];
   
   NodeContainer nodes;
   NetDeviceContainer devices;
@@ -135,14 +144,14 @@ private:
 int main (int argc, char **argv)
 {
   LeachProposal test;
-  uint32_t nWifis = 100;
+  uint32_t nWifis = 50;
   uint32_t nSinks = 1;
   double totalTime = 50.0;
   std::string rate ("8kbps");
   std::string phyMode ("DsssRate11Mbps");
   uint32_t periodicUpdateInterval = 5;
   double dataStart = 0.0;
-  double lambda = 4.0;
+  double lambda = 1.0;
 
   CommandLine cmd;
   cmd.AddValue ("nWifis", "Number of WiFi nodes[Default:30]", nWifis);
@@ -275,7 +284,13 @@ LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std:
 
   double avgIdle = 0.0, avgTx = 0.0, avgRx = 0.0;
   double energyTx = 0.0, energyRx = 0.0;
+  char file_name[20];
+  int j=0;
+  FILE* pfile;
   
+  snprintf(file_name, 19, "timeline%d", m_nWifis);
+  pfile = fopen(file_name, "w");
+	
   std::cout << "Total bytes received: " << bytesTotal << "\n";
   std::cout << "Total packets received/decompressed/received yet expired+dropped/generated: " << packetsReceived << "/" << packetsDecompressed
                  << "/" << packetsReceivedYetExpired + packetsDropped << "/" << packetsGenerated << "\n";
@@ -295,6 +310,20 @@ LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std:
   std::cout << "Avg Idle time(ms): " << avgIdle/m_nWifis << ", Avg Tx Time(ms): " << avgTx/m_nWifis << ", Avg Rx Time(ms): " << avgRx/m_nWifis << "\n";
   std::cout << "Avg Tx energy(mJ): " << energyTx/m_nWifis << ", Avg Rx energy(mJ): " << energyRx/m_nWifis << "\n";
 
+  for (NodeContainer::Iterator i = nodes.Begin (); i != nodes.End (); ++i, ++j)
+    {
+      Ptr<leach::RoutingProtocol> leachTracer = DynamicCast<leach::RoutingProtocol> ((*i)->GetObject<Ipv4> ()->GetRoutingProtocol());
+      m_timeline[j] = leachTracer->getTimeline();
+    }
+	
+  sort(m_timeline[m_nWifis/2]->begin(), m_timeline[m_nWifis/2]->end(), cmp);
+  for(std::vector<struct ns3::leach::msmt>::iterator it=m_timeline[m_nWifis/2]->begin(); it!=m_timeline[m_nWifis/2]->end(); ++it)
+    {
+      fprintf(pfile, "%.6f, %.6f\n", it->begin.GetSeconds(), it->end.GetSeconds());
+      NS_LOG_INFO(it->begin.GetSeconds() << " " << it->end.GetSeconds());
+    }
+  
+  fclose(pfile);
   Simulator::Destroy ();
 }
 
@@ -319,16 +348,16 @@ LeachProposal::SetupMobility ()
   pos.Set ("X", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=400.0]"));
   pos.Set ("Y", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=400.0]"));
   */
-  
+  /*
   pos.Set ("X", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=800.0]"));
   pos.Set ("Y", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=200.0]"));
+  */
   
-  /*
   pos.SetTypeId ("ns3::RandomDiscPositionAllocator");
   pos.Set ("Rho", StringValue ("ns3::UniformRandomVariable[Min=0.0|Max=225.0]"));
   pos.Set ("X", DoubleValue (225.0));
   pos.Set ("Y", DoubleValue (225.0));
-  */
+  
   Ptr <PositionAllocator> taPositionAlloc = pos.Create ()->GetObject <PositionAllocator> ();
   mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
   mobility.SetPositionAllocator (taPositionAlloc);
@@ -400,14 +429,16 @@ LeachProposal::InstallInternetStack (std::string tr_name)
   leach.Set ("PeriodicUpdateInterval", TimeValue (Seconds (m_periodicUpdateInterval)));
   InternetStackHelper stack;
   uint32_t count = 0;
+  int j=0;
 
-  for (NodeContainer::Iterator i = nodes.Begin (); i != nodes.End (); ++i)
+  for (NodeContainer::Iterator i = nodes.Begin (); i != nodes.End (); ++i, ++j)
     {
       leach.Set("Position", Vector3DValue(positions[count++]));
       stack.SetRoutingHelper (leach); // has effect on the next Install ()
       stack.Install (*i);
       Ptr<leach::RoutingProtocol> leachTracer = DynamicCast<leach::RoutingProtocol> ((*i)->GetObject<Ipv4> ()->GetRoutingProtocol());
       leachTracer->TraceConnectWithoutContext ("DroppedCount", MakeCallback (&CountDroppedPkt));
+      m_timeline[j] = leachTracer->getTimeline();
     }
   //stack.Install (nodes);        // should give change to leach protocol on the position property
   Ipv4AddressHelper address;
@@ -425,7 +456,7 @@ LeachProposal::InstallApplications ()
   WsnHelper wsn1 ("ns3::UdpSocketFactory", Address (InetSocketAddress (interfaces.GetAddress (0), port)));
   wsn1.SetAttribute ("PktGenRate", DoubleValue(m_lambda));
   // 0 for periodic, 1 for Poisson
-  wsn1.SetAttribute ("PktGenPattern", IntegerValue(1));
+  wsn1.SetAttribute ("PktGenPattern", IntegerValue(0));
   wsn1.SetAttribute ("PacketDeadlineLen", IntegerValue(3000000000));  // default
   wsn1.SetAttribute ("PacketDeadlineMin", IntegerValue(5000000000));  // default
   
