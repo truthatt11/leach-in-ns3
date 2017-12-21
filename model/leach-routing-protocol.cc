@@ -109,6 +109,11 @@ RoutingProtocol::getTimeline()
 {
   return &timeline;
 }
+std::vector<Time>*
+RoutingProtocol::getTxTime()
+{
+  return &tx_time;
+}
   
 int64_t
 RoutingProtocol::AssignStreams (int64_t stream)
@@ -123,6 +128,8 @@ RoutingProtocol::RoutingProtocol ()
     isSink(0),
     m_dropped (0),
     m_lambda (4.0),
+	timeline(),
+	tx_time(),
     m_routingTable (),
     m_bestRoute(),
     m_queue (),
@@ -207,11 +214,35 @@ RoutingProtocol::RouteOutput (Ptr<Packet> p,
 #ifdef DA
   if (p->GetSize()%56 == 0)
     {
+/*
+      if (p->GetSize() == 56)
+	    {
+          Ptr<Packet> packet = new Packet(*p);
+          LeachHeader hdr;
+          struct ns3::leach::msmt tmp;
+          
+          packet->RemoveHeader(hdr);
+          tmp.begin = Simulator::Now();
+          tmp.end = hdr.GetDeadline();
+          timeline.push_back(tmp);
+		}
+*/
       if (DataAggregation (p))
         {
 #endif
           if (m_routingTable.LookupRoute (dst,rt))
             {
+              tx_time.push_back(Simulator::Now());
+				
+              Ptr<Packet> packet = new Packet(*p);
+              LeachHeader hdr;
+              struct ns3::leach::msmt tmp;
+          
+              packet->RemoveHeader(hdr);
+              tmp.begin = Simulator::Now();
+              tmp.end = hdr.GetDeadline();
+              timeline.push_back(tmp);
+				
               return rt.GetRoute();
             }
 #ifdef DA
@@ -219,6 +250,7 @@ RoutingProtocol::RouteOutput (Ptr<Packet> p,
     }
   else if (m_routingTable.LookupRoute (dst,rt))
     {
+//      tx_time.push_back(Simulator::Now());
       return rt.GetRoute();
     }
 #endif

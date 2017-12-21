@@ -122,7 +122,8 @@ private:
   uint32_t packetsDecompressed;
   Vector positions[205];
   double m_lambda;
-  std::vector<struct ns3::leach::msmt>* m_timeline[205];
+  std::vector<struct ns3::leach::msmt>* m_timeline;
+  std::vector<Time>* m_txtime;
   
   NodeContainer nodes;
   NetDeviceContainer devices;
@@ -285,11 +286,12 @@ LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std:
   double avgIdle = 0.0, avgTx = 0.0, avgRx = 0.0;
   double energyTx = 0.0, energyRx = 0.0;
   char file_name[20];
-  int j=0;
-  FILE* pfile;
+  FILE* pfile, *p2file;
   
-  snprintf(file_name, 19, "timeline%d", m_nWifis);
+  snprintf(file_name, 19, "timeline%d-%d", m_nWifis, (int)lambda);
   pfile = fopen(file_name, "w");
+  snprintf(file_name, 19, "txtime%d-%d", m_nWifis, (int)lambda);
+  p2file = fopen(file_name, "w");
 	
   std::cout << "Total bytes received: " << bytesTotal << "\n";
   std::cout << "Total packets received/decompressed/received yet expired+dropped/generated: " << packetsReceived << "/" << packetsDecompressed
@@ -307,23 +309,26 @@ LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std:
       energyRx += ptr->GetRxTime().ToDouble(Time::MS) * ptr->GetTxCurrentA();
 //      NS_LOG_UNCOND("Idle time: " << ptr->GetIdleTime() << ", Tx Time: " << ptr->GetTxTime() << ", Rx Time: " << ptr->GetRxTime());
     }
-  std::cout << "Avg Idle time(ms): " << avgIdle/m_nWifis << ", Avg Tx Time(ms): " << avgTx/m_nWifis << ", Avg Rx Time(ms): " << avgRx/m_nWifis << "\n";
-  std::cout << "Avg Tx energy(mJ): " << energyTx/m_nWifis << ", Avg Rx energy(mJ): " << energyRx/m_nWifis << "\n";
+  std::cout << "Avg Idle time(ms) / Avg Tx Time(ms) / Avg Rx Time(ms): " << avgIdle/m_nWifis << "/" << avgTx/m_nWifis << "/" << avgRx/m_nWifis << "\n";
+  std::cout << "Avg Tx energy(mJ) / Avg Rx energy(mJ): " << energyTx/m_nWifis << "/" << energyRx/m_nWifis << "\n";
 
-  for (NodeContainer::Iterator i = nodes.Begin (); i != nodes.End (); ++i, ++j)
-    {
-      Ptr<leach::RoutingProtocol> leachTracer = DynamicCast<leach::RoutingProtocol> ((*i)->GetObject<Ipv4> ()->GetRoutingProtocol());
-      m_timeline[j] = leachTracer->getTimeline();
-    }
+  Ptr<leach::RoutingProtocol> leachTracer = DynamicCast<leach::RoutingProtocol> ((nodes.Get(m_nWifis/2))->GetObject<Ipv4> ()->GetRoutingProtocol());
+  m_timeline = leachTracer->getTimeline();
+  m_txtime = leachTracer->getTxTime();
 	
-  sort(m_timeline[m_nWifis/2]->begin(), m_timeline[m_nWifis/2]->end(), cmp);
-  for(std::vector<struct ns3::leach::msmt>::iterator it=m_timeline[m_nWifis/2]->begin(); it!=m_timeline[m_nWifis/2]->end(); ++it)
+  sort(m_timeline->begin(), m_timeline->end(), cmp);
+  for (std::vector<struct ns3::leach::msmt>::iterator it=m_timeline->begin(); it!=m_timeline->end(); ++it)
     {
       fprintf(pfile, "%.6f, %.6f\n", it->begin.GetSeconds(), it->end.GetSeconds());
-      NS_LOG_INFO(it->begin.GetSeconds() << " " << it->end.GetSeconds());
+    }
+//  sort(tx_time->begin(), tx_time->end());
+  for (std::vector<Time>::iterator it=m_txtime->begin(); it!=m_txtime->end(); ++it)
+    {
+      fprintf(p2file, "%.6f\n", it->GetSeconds());
     }
   
   fclose(pfile);
+  fclose(p2file);
   Simulator::Destroy ();
 }
 
@@ -438,7 +443,6 @@ LeachProposal::InstallInternetStack (std::string tr_name)
       stack.Install (*i);
       Ptr<leach::RoutingProtocol> leachTracer = DynamicCast<leach::RoutingProtocol> ((*i)->GetObject<Ipv4> ()->GetRoutingProtocol());
       leachTracer->TraceConnectWithoutContext ("DroppedCount", MakeCallback (&CountDroppedPkt));
-      m_timeline[j] = leachTracer->getTimeline();
     }
   //stack.Install (nodes);        // should give change to leach protocol on the position property
   Ipv4AddressHelper address;

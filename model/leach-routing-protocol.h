@@ -91,8 +91,7 @@ public:
   Vector GetPosition () const;
   
   std::vector<struct msmt>* getTimeline();
-
-  std::vector<struct msmt> timeline;
+  std::vector<Time>* getTxTime();
 
  /**
   * Assign a fixed random variable stream number to the random variables
@@ -122,6 +121,9 @@ private:
     Ptr<Packet> p;
     struct hash* next;
   }*m_hash[1021];
+  
+  std::vector<struct msmt> timeline;
+  std::vector<Time> tx_time;
 
   /// PeriodicUpdateInterval specifies the periodic time interval between which the a node broadcasts
   /// its entire routing table.
