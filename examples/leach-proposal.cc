@@ -305,8 +305,8 @@ LeachProposal::CaseRun (uint32_t nWifis, uint32_t nSinks, double totalTime, std:
       avgIdle += ptr->GetIdleTime().ToDouble(Time::MS);
       avgTx += ptr->GetTxTime().ToDouble(Time::MS);
       avgRx += ptr->GetRxTime().ToDouble(Time::MS);
-      energyTx += ptr->GetTxTime().ToDouble(Time::MS) * ptr->GetTxCurrentA() * 3;
-      energyRx += ptr->GetRxTime().ToDouble(Time::MS) * ptr->GetTxCurrentA() * 3;
+      energyTx += ptr->GetTxTime().ToDouble(Time::MS) * ptr->GetTxCurrentA();
+      energyRx += ptr->GetRxTime().ToDouble(Time::MS) * ptr->GetTxCurrentA();
 //      NS_LOG_UNCOND("Idle time: " << ptr->GetIdleTime() << ", Tx Time: " << ptr->GetTxTime() << ", Rx Time: " << ptr->GetRxTime());
     }
   std::cout << "Avg Idle time(ms) / Avg Tx Time(ms) / Avg Rx Time(ms): " << avgIdle/m_nWifis << "/" << avgTx/m_nWifis << "/" << avgRx/m_nWifis << "\n";
